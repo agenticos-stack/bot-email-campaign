@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import {createConnectedApi} from '../scripts/connected-api.mjs';
 import { refuse } from '../scripts/door-certainty.mjs';
 const frontendOrigin='http://email.localhost:18000';
-test('a pasted custom_html export passes the connected BFF without increasing the agent-message budget',async()=>{
-  // A large pasted-HTML section travels the gadget RPC route's larger bound,
+test('a large draft write passes the connected BFF without increasing the agent-message budget',async()=>{
+  // A large section payload travels the gadget RPC route's larger bound,
   // not the agent route's message budget.
-  const body=JSON.stringify({method:'saveDraft',args:[{draft:{sections:[{type:'custom_html',html:{$bot_bytes_b64:'a'.repeat(150000)}}]}}]});
+  const body=JSON.stringify({method:'saveDraft',args:[{draft:{sections:[{type:'body',body:'a'.repeat(150000)}]}}]});
   const handle=createConnectedApi({apiOrigin:'http://127.0.0.1:8789',frontendOrigin,development:{call:async request=>{
     assert.equal(await request.text(),body);
     return Response.json({ok:true,value:{revision:2}});

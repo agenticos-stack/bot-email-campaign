@@ -18,16 +18,21 @@
  *    Eligibility is re-derived at send time by FavCRM's single funnel.
  * 3. `estimate`/`delivery_stats` are collections of {metric, value} rows so a
  *    declarative view can render them without a bespoke widget type.
- * 4. Sections are typed blocks — `heading | body | cta | image` — plus the
- *    `custom_html` escape hatch: one pasted block (a whole exported email from
- *    Stripo/BEE/Mailchimp-style editors, or a single block). `custom_html`
- *    carries `html`; sanitization is a send-time boundary in the domain
- *    service (`sectionsToHtml` / the FavCRM mirror), never a definition or
- *    command concern — and the platform still appends sender identity, legal
- *    footer and unsubscribe on every send, which no section can remove.
+ * 4. Sections are the four typed blocks in `EMAIL_CAMPAIGN_SECTION_TYPES`.
+ *    `custom_html` — the paste-a-whole-email escape hatch — is REFUSED, not
+ *    carried: the send path (`sectionsToHtml` in the campaigns domain
+ *    service) has no parser-based sanitizer to make pasted markup safe, and
+ *    a block the owner approved but the mirror silently drops is worse than
+ *    no block. A write naming `type: "custom_html"` is refused at the draft
+ *    boundary (`unsupported_section`); it can return when the host renderer
+ *    carries a real sanitizer. The platform still appends sender identity,
+ *    legal footer and unsubscribe on every send, which no section can remove.
  */
 
 import { GADGET_DEFINITION_SCHEMA } from "@agenticos-dev/bot-contract";
+
+/** The section types a draft may carry — the union `sectionsToHtml` renders. */
+export const EMAIL_CAMPAIGN_SECTION_TYPES = ["heading", "body", "cta", "image"] as const;
 
 export const EMAIL_CAMPAIGN_DEFINITION = {
   schemaVersion: GADGET_DEFINITION_SCHEMA,
@@ -41,24 +46,31 @@ export const EMAIL_CAMPAIGN_DEFINITION = {
     { key: "audience_source", kind: "choice", label: "Audience", options: ["all", "segment", "individual"] },
     // At most one row: [{ segment_id, label }]
     { key: "audience_segment", kind: "collection", label: "Segment", maxItems: 1 },
-    // [{ account_id, name, email }]
-    { key: "audience_accounts", kind: "collection", label: "Selected customers", maxItems: 500 },
-    // [{ kind: "account" | "campaign", id, label }]
-    { key: "audience_exclusions", kind: "collection", label: "Exclusions", maxItems: 500 },
+    // [{ account_id, name, email }] — the declared cap is 1000; the shared
+    // contract still clamps every collection at 500 items, which is the
+    // effective bound today. Both statements are true on purpose: the declared
+    // value is the product intent, the contract limit is the enforced one.
+    { key: "audience_accounts", kind: "collection", label: "Selected customers", maxItems: 1000 },
+    // [{ kind: "account" | "campaign", id, label }] — same declared/enforced split.
+    { key: "audience_exclusions", kind: "collection", label: "Exclusions", maxItems: 1050 },
 
     // --- content ---
     { key: "subject", kind: "text", label: "Subject" },
     { key: "preheader", kind: "text", label: "Preheader" },
-    // [{ type: "heading" | "body" | "cta" | "image" | "custom_html",
-    //    heading?, body?, cta_label?, cta_url?, image_url?, html? }]
+    // [{ type: "heading" | "body" | "cta" | "image",
+    //    heading?, body?, cta_label?, cta_url?, image_url? }]
     { key: "sections", kind: "collection", label: "Email sections", maxItems: 40 },
 
     // --- schedule: empty means "send on approval" ---
     { key: "scheduled_for", kind: "text", label: "Scheduled for" },
 
     // --- outcomes: written by the domain service, never by command ---
-    { key: "review_state", kind: "choice", label: "Review", options: ["drafting", "in_review", "approved", "sent"] },
+    { key: "review_state", kind: "choice", label: "Review", options: ["drafting", "in_review", "approved", "scheduled", "sent"] },
     { key: "favcrm_campaign_id", kind: "text", label: "FavCRM campaign" },
+    // FavCRM's absolute undo deadline — empty once the window has closed.
+    { key: "undo_until", kind: "text", label: "Undo send until" },
+    { key: "last_test_at", kind: "text", label: "Last test sent at" },
+    { key: "last_test_to", kind: "text", label: "Last test recipient" },
     // [{ metric, value }] — e.g. total, excluded, no_consent, opted_out, eligible
     { key: "estimate", kind: "collection", label: "Audience estimate", maxItems: 12 },
     // [{ metric, value }] — e.g. sent, delivered, opened, clicked, bounced, failed
@@ -95,9 +107,17 @@ export const EMAIL_CAMPAIGN_DEFINITION = {
     "sections[].cta_label",
     "sections[].cta_url",
     "sections[].image_url",
-    "sections[].html",
     "scheduled_for"
   ],
+
+  /**
+   * Locked while the draft is scheduled or sent: FavCRM holds its own copy of
+   * the content by then, and a command-path edit would never reach it — the
+   * draft would say one thing while the provider sends another. `unschedule`
+   * (or `undo` after a send) returns `review_state` to `drafting` and reopens
+   * the mutable surface through the domain, never through a state.set.
+   */
+  mutableWhen: { field: "review_state", in: ["drafting", "in_review", "approved"] },
 
   commands: [
     "state.set",
@@ -165,19 +185,27 @@ export const EMAIL_CAMPAIGN_DEFINITION = {
     }
   ],
 
+  /**
+   * Two deliberate divergences from the in-repo definition this ports:
+   *
+   * - `schedule` and `workspace` are declared here where the host copy did not
+   *   — the facet calls both door kinds (arm/cancel a send time; list sibling
+   *   gadgets and post notifications), and an undeclared door can never be
+   *   granted.
+   * - Everything is `optional: true`. `favcrm_connector`/`email_sender` were
+   *   required in-repo, but required would make the gadget unloadable today:
+   *   no platform door kind maps to those keys yet (a grant request answers
+   *   `unknown_door`), so a hard requirement could never be satisfied.
+   *   Optional lets the gadget load and report the capability gap honestly —
+   *   the facet refuses `capability_unavailable` at the send boundary instead
+   *   of pretending. `schedule`/`workspace` are real door kinds; they stay
+   *   optional so the gadget runs degraded, not broken, without them. When
+   *   real door kinds land for the two connector/capability requirements,
+   *   revisit making them required.
+   */
   requirements: [
-    /*
-     * INTERIM (platform door kinds pending): `favcrm_connector` and
-     * `email_sender` name the capabilities send/estimate depend on, but no
-     * gatekeeper kind maps to them yet — a grant request finds no door to
-     * open, and `env.<key>` is absent, so the facet answers a capability gap
-     * instead of pretending. The declared intent is kept so the contract is
-     * already correct when the real doors land. Do not wire fake doors.
-     */
     { requirementKey: "favcrm_connector", kind: "connector_resource", label: "FavCRM workspace (customers, segments, consent, delivery)", optional: true },
     { requirementKey: "email_sender", kind: "capability", label: "Email sender (ESP)", optional: true },
-    // Real door kinds today: `schedule` arms send times, `workspace` lists
-    // sibling gadgets (the campaign list) and posts notifications.
     { requirementKey: "schedule", kind: "capability", label: "Campaign scheduling", optional: true },
     { requirementKey: "workspace", kind: "capability", label: "Workspace notifications", optional: true }
   ]
@@ -195,6 +223,9 @@ export const EMAIL_CAMPAIGN_INITIAL_STATE = {
   scheduled_for: "",
   review_state: "drafting",
   favcrm_campaign_id: "",
+  undo_until: "",
+  last_test_at: "",
+  last_test_to: "",
   estimate: [],
   delivery_stats: [],
   sender_status: [],

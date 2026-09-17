@@ -2,11 +2,11 @@
 // off `S` (state.js) and the facet's draft model.
 //
 // Every function returns an HTML string; every untrusted value passes through
-// `esc()` at the render site. The one deliberate exception is a `custom_html`
-// section's preview, which renders inside a sandboxed `<iframe srcdoc>` after
-// `sanitizeCustomHtml` — never into this document's own markup.
+// `esc()` at the render site. There is no raw-HTML escape hatch: the four
+// section types are the whole content model, and pasted markup is refused at
+// the draft boundary until the send path can carry it.
 
-import { audienceKey, normalizeDraft, sanitizeCustomHtml } from "../../model.js";
+import { audienceKey, normalizeDraft } from "../../model.js";
 import { $, announce, button, closeDialog, dialogShell, esc, field, icon, notice } from "./dom.js";
 import { formatSchedule, number, t } from "./i18n.js";
 import {
@@ -31,8 +31,7 @@ const SECTION_META = {
   heading: ["Heading", "標題", "heading"],
   body: ["Body", "內文", "text"],
   cta: ["Button", "按鈕", "link"],
-  image: ["Image", "圖片", "image"],
-  custom_html: ["Custom HTML", "自訂 HTML", "code"]
+  image: ["Image", "圖片", "image"]
 };
 
 function results(query, kind, locked) {
@@ -202,12 +201,11 @@ function contentStep() {
     else if (s.type === "body") body = `<textarea data-block="${esc(s.id)}" data-bf="body" placeholder="${t("Write the message…", "撰寫內容…")}" ${locked ? "disabled" : ""}>${esc(s.body)}</textarea>`;
     else if (s.type === "cta") body = `<input data-block="${esc(s.id)}" data-bf="cta_label" value="${esc(s.cta_label)}" placeholder="${t("Button label", "按鈕文字")}" ${locked ? "disabled" : ""}><div style="height:8px"></div><input data-block="${esc(s.id)}" data-bf="cta_url" value="${esc(s.cta_url)}" placeholder="https://" ${locked ? "disabled" : ""}>`;
     else if (s.type === "image") body = `<input data-block="${esc(s.id)}" data-bf="image_url" value="${esc(s.image_url)}" placeholder="${t("Image URL (https://…)", "圖片網址（https://…）")}" ${locked ? "disabled" : ""}>`;
-    else if (s.type === "custom_html") body = `<textarea class="code" data-block="${esc(s.id)}" data-bf="html" placeholder="<!doctype html>…" ${locked ? "disabled" : ""}>${esc(s.html)}</textarea><p class="hint">${t("Sanitized at send — scripts, forms, tracking pixels, inline handlers and javascript: URLs are removed.", "傳送前經過消毒——指令碼、表單、追蹤像素、內聯處理器及 javascript: 網址均會移除。")}</p>`;
     return `<div class="block"><div class="block-title"><span class="block-icon">${icon(meta[2])}${t(meta[0], meta[1])}</span>${moves}</div>${body}</div>`;
   };
   const left = `${field("subject", t("Subject", "主旨"), d.subject, { disabled: locked })}<div style="height:14px"></div>${field("preheader", t("Preheader", "預覽文字"), d.preheader, { disabled: locked, hint: t("Shown beside the subject in the inbox list.", "於收件匣列表中顯示在主旨旁。") })}<div class="form-section" style="margin-top:26px"><div class="section-heading"><div><h3>${t("Sections", "內容區塊")}</h3><p>${t("The exact message the approval binds.", "核准所綁定的確切內容。")}</p></div></div>
     ${d.sections.map(blockEditor).join("")}
-    <div class="add-blocks">${Object.keys(SECTION_META).filter((k) => k !== "custom_html").map((k) => `<button class="btn quiet" data-action="add-block" data-value="${k}" data-key="add-${k}" ${locked ? "disabled" : ""}>${icon("plus")}${t(...[SECTION_META[k][0], SECTION_META[k][1]])}</button>`).join("")}<button class="btn quiet" data-action="import-html" data-key="import-html" ${locked ? "disabled" : ""}>${icon("code")}${t("Import HTML", "匯入 HTML")}</button></div></div>`;
+    <div class="add-blocks">${Object.keys(SECTION_META).map((k) => `<button class="btn quiet" data-action="add-block" data-value="${k}" data-key="add-${k}" ${locked ? "disabled" : ""}>${icon("plus")}${t(...[SECTION_META[k][0], SECTION_META[k][1]])}</button>`).join("")}</div></div>`;
   const right = `<div class="preview-column"><div class="preview-tools"><span class="eyebrow">${t("Preview", "預覽")}</span><div class="device-toggle"><button class="btn ${S.device === "desktop" ? "active" : ""}" data-action="device" data-value="desktop" data-key="dev-desktop" aria-label="${t("Desktop preview", "桌面預覽")}">${icon("monitor")}</button><button class="btn ${S.device === "mobile" ? "active" : ""}" data-action="device" data-value="mobile" data-key="dev-mobile" aria-label="${t("Mobile preview", "手機預覽")}">${icon("phone")}</button></div></div>
   <div class="preview-stage ${S.device === "mobile" ? "mobile" : ""}"><div class="envelope-meta"><div><span class="faint">${t("From", "寄件者")}</span> <strong>${esc(S.sender?.from_name && S.sender?.from_email ? `${S.sender.from_name} <${S.sender.from_email}>` : S.sender?.from_email ?? t("No sender verified", "尚未驗證寄件者"))}</strong></div><strong>${esc(d.subject || t("(no subject)", "（無主旨）"))}</strong><span class="faint">${esc(d.preheader)}</span></div>
   <div class="mail-body">${d.sections
@@ -218,9 +216,7 @@ function contentStep() {
           ? `<p>${esc(s.body)}</p>`
           : s.type === "cta"
             ? `<a class="mail-cta" href="#" onclick="return false">${esc(s.cta_label || "Button")}</a>`
-            : s.type === "custom_html"
-              ? `<iframe class="mail-html" title="${t("Pasted HTML preview", "貼上 HTML 預覽")}" sandbox referrerpolicy="no-referrer" srcdoc="${esc(sanitizeCustomHtml(s.html || ""))}"></iframe>`
-              : `<div class="mail-img">${t("Image", "圖片")}</div>`
+            : `<div class="mail-img">${t("Image", "圖片")}</div>`
     )
     .join("")}
   <div class="mail-foot">${esc(S.sender?.from_name ?? "")}${t(" · legal footer appended by the platform", " · 平台附加的法律頁尾")}<br>${t("Unsubscribe · Preferences — always present on send", "取消訂閱 · 設定偏好——傳送時必定附上")}</div></div></div>
@@ -359,14 +355,5 @@ export function openScheduleManage() {
     t("This campaign is approved for " + formatSchedule(c?.draft?.scheduled_for) + ".", "此活動已核准於 " + formatSchedule(c?.draft?.scheduled_for) + " 傳送。"),
     `${field("reschedule", t("New time", "新時間"), c?.draft?.scheduled_for ?? "", { type: "datetime-local" })}<p class="dialog-help">${t("Rescheduling binds a new approval to the same revision. Unscheduling returns the draft to editable.", "更改時間會就同一版本重新核准。取消排程可再次編輯草稿。")}</p>`,
     `${button("unschedule", t("Unschedule", "取消排程"), { kind: "quiet", key: "unschedule" })}${button("reschedule", t("Reschedule", "更改時間"), { kind: "primary", key: "reschedule" })}`
-  );
-}
-
-export function openImport() {
-  dialogShell(
-    t("Import email HTML", "匯入電郵 HTML"),
-    t("Paste a full email or a block exported from another editor — Stripo, BEE, Mailchimp, anything. It becomes one Custom HTML section, sanitized at send; the platform still appends identity, footer and unsubscribe.", "貼上由其他編輯器匯出的完整電郵或區塊——Stripo、BEE、Mailchimp 等均可。內容會成為一個「自訂 HTML」區塊，傳送前經過消毒；平台仍會附加身分、頁尾及取消訂閱。"),
-    `<textarea id="import-src" class="code" style="width:100%;min-height:220px;box-sizing:border-box" placeholder="<!doctype html>…"></textarea><p class="dialog-help">${t("Replaces all current sections with a single Custom HTML block — you can add structured blocks above or below it afterwards.", "會以一個「自訂 HTML」區塊取代所有現有內容——之後仍可於其前後加入結構化區塊。")}</p>`,
-    `${button("close-dialog", t("Cancel", "取消"), { kind: "quiet", key: "import-cancel" })}${button("apply-import", t("Replace content", "取代內容"), { kind: "primary", key: "apply-import" })}`
   );
 }

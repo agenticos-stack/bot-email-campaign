@@ -19,7 +19,7 @@ import {
   openDraft,
   setView
 } from "./state.js";
-import { openConfirm, openConflict, openGrant, openImport, openProposal, openScheduleManage, openSender } from "./views.js";
+import { openConfirm, openConflict, openGrant, openProposal, openScheduleManage, openSender } from "./views.js";
 
 /** Build the dispatch map. `render()` re-renders; `syncDraft()` saves the working copy. */
 export function createActions({ rpc, render, requestGrant }) {
@@ -113,18 +113,7 @@ export function createActions({ rpc, render, requestGrant }) {
     },
     "add-block"(v) {
       if (!S.edit) return;
-      S.edit.sections = [...S.edit.sections, { id: newId("s"), type: v, heading: t("New heading", "新標題"), body: "", cta_label: t("Learn more", "了解更多"), cta_url: "https://example.com", image_url: "", html: "" }];
-    },
-    "import-html"() {
-      openImport();
-    },
-    "apply-import"() {
-      const v = $("#import-src")?.value.trim();
-      if (v && S.edit) {
-        S.edit.sections = [{ id: newId("s"), type: "custom_html", html: v }];
-        closeDialog();
-        announce(t("Imported as a Custom HTML block — sanitized at send", "已匯入為「自訂 HTML」區塊——傳送前會消毒"));
-      }
+      S.edit.sections = [...S.edit.sections, { id: newId("s"), type: v, heading: t("New heading", "新標題"), body: "", cta_label: t("Learn more", "了解更多"), cta_url: "https://example.com", image_url: "" }];
     },
     "block-up"(v, el) {
       const id = el.dataset.id;

@@ -1,31 +1,36 @@
 // Node unit tests for the pure Email Campaign model. No network, no D1, no
 // facet — model.js has no I/O beyond the platform crypto API and the clock the
 // caller passes in. These pin the draft both the facet's `campaigns` row and
-// the `state_json` mirror agree on, plus the custom_html sanitize contract.
+// the `state_json` mirror agree on, plus the custom_html refusal boundary and
+// the review-state lifecycle lock.
 import { describe, expect, it } from "vitest";
 import {
   MUTABLE_PATHS,
+  OPEN_REVIEW_STATES,
   OUTCOME_PATHS,
   SECTION_TYPES,
   applyCommandToDraft,
   audienceKey,
-  customHtmlSendable,
   draftFingerprint,
+  draftLocked,
   draftToState,
   missingForSend,
   normalizeDraft,
   normalizeSection,
   normalizeSections,
-  sanitizeCustomHtml,
-  sectionsToHtml
+  sectionsToHtml,
+  unsupportedSectionTypes
 } from "../../src/model.js";
 
 describe("normalizeSection", () => {
-  it("keeps each declared type and drops an unknown one", () => {
-    for (const type of ["heading", "body", "cta", "image", "custom_html"]) {
+  it("keeps each declared type and drops everything else — custom_html included", () => {
+    for (const type of ["heading", "body", "cta", "image"]) {
       expect(normalizeSection({ type })?.type).toBe(type);
     }
-    expect(SECTION_TYPES).toContain("custom_html");
+    expect(SECTION_TYPES).not.toContain("custom_html");
+    // Refused, not silently rendered: pasted markup is dropped like any other
+    // unknown type at normalization, and named at the write boundary below.
+    expect(normalizeSection({ type: "custom_html" })).toBeNull();
     expect(normalizeSection({ type: "banner" })).toBeNull();
     expect(normalizeSection({ type: "script" })).toBeNull();
     expect(normalizeSection(null)).toBeNull();
@@ -65,62 +70,48 @@ describe("normalizeSections", () => {
   });
 });
 
-describe("sanitizeCustomHtml — the send-time boundary", () => {
-  it("removes scripts and forms", () => {
-    const dirty = `<div>Hi</div><script>alert(1)</script><form action="/x"><input></form><p>Bye</p>`;
-    const out = sanitizeCustomHtml(dirty);
-    expect(out).not.toMatch(/<script/i);
-    expect(out).not.toMatch(/<form/i);
-    expect(out).toContain("Hi");
-    expect(out).toContain("Bye");
+describe("unsupportedSectionTypes — the custom_html refusal boundary", () => {
+  it("names pasted markup and any other undeclared type", () => {
+    expect(unsupportedSectionTypes([{ type: "body" }])).toEqual([]);
+    expect(unsupportedSectionTypes([{ type: "custom_html" }, { type: "body" }, { type: "raw" }])).toEqual([
+      "custom_html",
+      "raw"
+    ]);
   });
 
-  it("strips inline event handlers", () => {
-    const out = sanitizeCustomHtml(`<a href="https://x.test" onclick="steal()" onmouseover='x()'>link</a><img src="https://x.test/a.png" onerror=bad()>`);
-    expect(out).not.toMatch(/on\w+\s*=/i);
-    expect(out).toContain('href="https://x.test"');
-  });
-
-  it("removes javascript: URLs from href/src/action", () => {
-    const out = sanitizeCustomHtml(`<a href="javascript:alert(1)">x</a><a href=' javascript:alert(2)'>y</a>`);
-    expect(out).not.toMatch(/javascript:/i);
-  });
-
-  it("drops non-image data: URLs but keeps image data:", () => {
-    const out = sanitizeCustomHtml(`<a href="data:text/html;base64,PHNjcmlwdD4=">x</a>`);
-    expect(out).not.toMatch(/data:text\/html/i);
-  });
-
-  it("removes 1x1 and 0-size tracking pixels but keeps a real image", () => {
-    const out = sanitizeCustomHtml(
-      `<img src="https://t.test/px" width="1" height="1"><img src="https://t.test/beacon" width="0"><img src="https://cdn.test/hero.png" width="600" height="200">`
-    );
-    expect(out).not.toContain("px");
-    expect(out).not.toContain("beacon");
-    expect(out).toContain("hero.png");
-  });
-
-  it("keeps a <style> block but strips IE-era script sinks", () => {
-    const out = sanitizeCustomHtml(`<style>.a{color:red}</style><div style="width:expression(alert(1))">x</div>`);
-    expect(out).toContain(".a{color:red}");
-    expect(out).not.toMatch(/expression\s*\(/i);
-  });
-
-  it("is idempotent — re-running a clean output changes nothing", () => {
-    const once = sanitizeCustomHtml(`<div onclick="x()"><script>bad()</script>Safe</div>`);
-    expect(sanitizeCustomHtml(once)).toBe(once);
+  it("a section write naming custom_html is refused, not carried", () => {
+    const draft = normalizeDraft({ subject: "S" });
+    const r = applyCommandToDraft(draft, {
+      kind: "collection.add",
+      path: "sections",
+      item: { type: "custom_html", html: "<p>pasted</p>" }
+    });
+    expect(r.ok).toBe(false);
+    expect(r.issues?.[0].code).toBe("unsupported_section");
+    // The refusal names the supported set so the caller can re-ask honestly.
+    expect(r.issues?.[0].message).toContain("heading");
+    expect(r.draft?.sections ?? draft.sections).toEqual([]);
   });
 });
 
-describe("customHtmlSendable", () => {
-  it("is true when markup survives with text", () => {
-    expect(customHtmlSendable(`<table><tr><td>Hello member</td></tr></table>`)).toBe(true);
+describe("draftLocked — the review_state lifecycle", () => {
+  it("opens for the declared mutable states and closes for the rest", () => {
+    for (const s of OPEN_REVIEW_STATES) expect(draftLocked(s)).toBe(false);
+    for (const s of ["scheduled", "sending", "sent", "paused", "cancelled"]) expect(draftLocked(s)).toBe(true);
+    // No state yet means the draft is still being shaped — open.
+    expect(draftLocked(null)).toBe(false);
+    expect(draftLocked(undefined)).toBe(false);
   });
-  it("is false when sanitization leaves only a shell", () => {
-    // A lone tracking pixel is removed wholesale — nothing sendable remains.
-    expect(customHtmlSendable(`<img src="https://t.test/px" width="1" height="1">`)).toBe(false);
-    // A form whose only content is a hidden control sanitizes to no body text.
-    expect(customHtmlSendable(`<form action="/x"><input type="hidden" name="t"></form>`)).toBe(false);
+
+  it("a scheduled campaign refuses mutation even on a mutable path", () => {
+    const draft = normalizeDraft({ subject: "S" });
+    const r = applyCommandToDraft(
+      draft,
+      { kind: "state.set", path: "subject", value: "Edited" },
+      { reviewState: "scheduled" }
+    );
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe("state_locked");
   });
 });
 
@@ -263,15 +254,18 @@ describe("draftToState / sectionsToHtml", () => {
     expect(state).not.toHaveProperty("estimate");
   });
 
-  it("renders sections to HTML and sanitizes a custom_html block inline", () => {
+  it("renders every declared section type and nothing else", () => {
     const html = sectionsToHtml([
       { type: "heading", heading: "Title" },
       { type: "body", body: "Line one\nLine two" },
-      { type: "custom_html", html: `<div onclick="x()">Pasted</div><script>bad()</script>` }
+      { type: "cta", cta_label: "Go", cta_url: "https://x.test" },
+      { type: "image", image_url: "https://cdn.test/a.png" }
     ]);
     expect(html).toContain("<h1>Title</h1>");
     expect(html).toContain("Line one<br>Line two");
-    expect(html).toContain("Pasted");
-    expect(html).not.toMatch(/onclick|<script/i);
+    expect(html).toContain("https://x.test");
+    expect(html).toContain("cdn.test/a.png");
+    // An unlisted type — custom_html or anything else — contributes nothing.
+    expect(sectionsToHtml([{ type: "custom_html", html: "<p>pasted</p>" }])).toBe("");
   });
 });

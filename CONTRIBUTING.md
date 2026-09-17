@@ -12,8 +12,8 @@ not hold the source any more.
 
 Compose governed bulk-email campaigns: audience references (segment id,
 account ids, exclusion ids — never a materialized recipient list), typed
-content sections (`heading | body | cta | image`) plus a sanitized
-`custom_html` escape hatch for editor-exported markup, then an
+content sections (`heading | body | cta | image` — pasted markup is refused;
+there is no raw-HTML section type), then an
 owner-approved send. FavCRM owns customers, consent, opt-outs, unsubscribe
 and the queue; this object is the AgenticOS-facing draft and decision record.
 

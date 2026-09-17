@@ -35,13 +35,15 @@ import {
   applyCommandToDraft,
   audienceKey,
   draftFingerprint,
+  draftLocked,
   draftToState,
   missingForSend,
   newId,
   normalizeDraft,
   normalizeSections,
-  sanitizeCustomHtml,
-  sectionsToHtml
+  SECTION_TYPES,
+  sectionsToHtml,
+  unsupportedSectionTypes
 } from "./model.js";
 import { normalizeConfig, configIssues } from "./config.js";
 import { Storage } from "./storage.js";
@@ -200,7 +202,7 @@ export class Gadget extends DurableObject {
     };
   }
 
-  /** The rendered HTML the canvas's send-preview shows — sanitized. */
+  /** The rendered HTML the canvas's send-preview shows — typed fields, escaped. */
   previewHtml(input = {}) {
     const campaign = input.id ? this.storage.getCampaign(input.id) : null;
     const draft = campaign ? campaign.draft : normalizeDraft(input.draft ?? {});
@@ -244,7 +246,8 @@ export class Gadget extends DurableObject {
    * the definition's command kinds against the same `mutable` allowlist —
    * outcome fields (`review_state`, `favcrm_campaign_id`, `estimate`,
    * `delivery_stats`, `sender_status`, `approvals`) refuse here exactly as
-   * they refuse through `state_json`.
+   * they refuse through `state_json`, and the `mutableWhen` lifecycle lock
+   * applies on the same `review_state` the outcome mirror carries.
    */
   applyCommand(input = {}) {
     return this.enqueueMutation(async () => this.applyCommandLocked(input));
@@ -256,7 +259,8 @@ export class Gadget extends DurableObject {
     if (!campaign) return { ok: false, code: "not_found", message: "No such campaign draft." };
     const applied = applyCommandToDraft(campaign.draft, command, {
       expectedRevision: expectedRevision ?? null,
-      revision: campaign.revision
+      revision: campaign.revision,
+      reviewState: effectiveReviewState(campaign)
     });
     if (!applied.ok) return applied;
     const saved = this.storage.saveCampaignDraft({
@@ -281,6 +285,14 @@ export class Gadget extends DurableObject {
       const id = input.id ?? this.storage.getSession("selectedCampaignId");
       const campaign = id ? this.storage.getCampaign(id) : null;
       if (!campaign) return { ok: false, code: "not_found", message: "No such campaign draft." };
+      const reviewState = effectiveReviewState(campaign);
+      if (draftLocked(reviewState)) {
+        return { ok: false, code: "state_locked", message: `Draft is read-only while review_state is "${reviewState}" — unschedule or undo through the domain to reopen it.` };
+      }
+      const bad = unsupportedSectionTypes(input.draft?.sections);
+      if (bad.length) {
+        return { ok: false, code: "unsupported_section", message: `Section type ${bad.map((b) => `"${b}"`).join(", ")} is not supported — sections are ${SECTION_TYPES.join(", ")}. Pasted HTML is refused until the send path can sanitize it.` };
+      }
       const draft = normalizeDraft(input.draft ?? {});
       const saved = this.storage.saveCampaignDraft({
         id: campaign.id,
@@ -323,9 +335,9 @@ export class Gadget extends DurableObject {
 
   /**
    * The agent stages a change as a proposal — a batch of draft commands plus a
-   * label — instead of writing the draft directly. For a `custom_html` block
-   * the payload is a whole-block replacement (one `collection.update` on the
-   * section's `html`), never a merge of pasted markup into typed rows.
+   * label — instead of writing the draft directly. Accepting applies the batch
+   * through the same command path as a direct write, so the lifecycle lock and
+   * the section boundary hold for proposals too.
    */
   proposeChange(input = {}) {
     return this.enqueueMutation(async () => {
@@ -357,7 +369,7 @@ export class Gadget extends DurableObject {
       const commands = Array.isArray(proposal.payload?.commands) ? proposal.payload.commands : [];
       let campaign = this.storage.getCampaign(proposal.campaignId);
       for (const command of commands) {
-        const applied = applyCommandToDraft(campaign.draft, command, { expectedRevision: null, revision: campaign.revision });
+        const applied = applyCommandToDraft(campaign.draft, command, { expectedRevision: null, revision: campaign.revision, reviewState: effectiveReviewState(campaign) });
         if (!applied.ok) return applied;
         const saved = this.storage.saveCampaignDraft({ id: campaign.id, draft: applied.draft, expectedRevision: null, now: this.now() });
         if (!saved.ok) return saved;
@@ -610,6 +622,21 @@ export class Gadget extends DurableObject {
     }
     await Promise.all(calls);
   }
+}
+
+/**
+ * The campaign's effective `review_state`: the outcome mirror's value when the
+ * domain has written one, else the facet's own lifecycle status mapped onto
+ * the definition's vocabulary. `queued`/`sent`/`attention` pass through as
+ * closed states — everything not in the open set locks the mutable surface,
+ * which is the `mutableWhen` contract applied to the facet draft.
+ */
+function effectiveReviewState(campaign) {
+  if (typeof campaign?.outcome?.review_state === "string" && campaign.outcome.review_state) {
+    return campaign.outcome.review_state;
+  }
+  const mapped = { draft: "drafting", in_review: "in_review", approved: "approved" }[campaign?.status];
+  return mapped ?? campaign?.status ?? "drafting";
 }
 
 function campaignSummary(campaign) {

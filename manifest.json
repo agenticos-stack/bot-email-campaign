@@ -4,7 +4,7 @@
   "artifact": "email-campaign.gadget",
   "metadata": {
     "title": "Email Campaign",
-    "description": "Compose governed bulk-email campaigns — audience references, typed sections and a sanitized custom-HTML escape hatch — for owner-approved delivery through FavCRM's queue.",
+    "description": "Compose governed bulk-email campaigns — audience references and typed sections — for owner-approved delivery through FavCRM's queue.",
     "author": {
       "type": "user",
       "name": "AgenticOS Platform",

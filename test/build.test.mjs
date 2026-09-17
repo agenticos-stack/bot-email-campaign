@@ -46,7 +46,15 @@ test("repeated builds preserve bytes, complete definition, and member checksums"
     assert.equal(first.release.blueprintKey, "email_campaign");
     assert.equal(first.release.sha256, sha256(first.bytes));
     const archive = await readBlueprintArchive(first.bytes.buffer.slice(first.bytes.byteOffset, first.bytes.byteOffset + first.bytes.byteLength));
-    assert.deepEqual(archive.metadata.gadgetDefinition, EMAIL_CAMPAIGN_DEFINITION);
+    // The archive embeds the VALIDATED definition — `validateGadgetDefinition`
+    // normalizes bounded fields (a collection's declared maxItems clamps to the
+    // contract's 500-item ceiling), so the comparison is against the checked
+    // copy, not the authored export. The API's vendored file carries the same
+    // declared values and clamps them identically at registration.
+    const { validateGadgetDefinition } = await import("@agenticos-dev/bot-contract");
+    const checked = validateGadgetDefinition(EMAIL_CAMPAIGN_DEFINITION);
+    assert.equal(checked.ok, true);
+    assert.deepEqual(archive.metadata.gadgetDefinition, checked.definition);
     assert.equal(archive.metadata.title, "Email Campaign");
     assert.deepEqual(archive.files, first.files);
     for (const [name, content] of Object.entries(archive.files)) assert.equal(first.release.files[name], sha256(content));
@@ -88,7 +96,7 @@ test("the client stylesheet survives the bundler intact", async () => {
   const bundle = await buildClient();
   for (const rule of [
     ".door-strip",                    // the capability strip, early in the sheet
-    ".mail-html",                     // the custom_html sandboxed preview
+    ".mail-body",                     // the composer's send preview
     ".conflict-choice",               // the revision-conflict dialog
     ".proposal-line",                 // the assistant-proposal row
     "@media (prefers-reduced-motion"  // the last rule in the sheet

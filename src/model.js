@@ -10,7 +10,7 @@
 // one draft both sides agree on: the facet's `campaigns` table row and the
 // `state_json` mirror the bridge writes before a governed action.
 
-export const SECTION_TYPES = Object.freeze(["heading", "body", "cta", "image", "custom_html"]);
+export const SECTION_TYPES = Object.freeze(["heading", "body", "cta", "image"]);
 
 /** What `state_json`'s `mutable` allowlist permits — mirrored, never re-derived. */
 export const MUTABLE_PATHS = Object.freeze([
@@ -19,23 +19,24 @@ export const MUTABLE_PATHS = Object.freeze([
   "audience_exclusions", "audience_exclusions[].kind", "audience_exclusions[].id", "audience_exclusions[].label",
   "subject", "preheader",
   "sections", "sections[].type", "sections[].heading", "sections[].body",
-  "sections[].cta_label", "sections[].cta_url", "sections[].image_url", "sections[].html",
+  "sections[].cta_label", "sections[].cta_url", "sections[].image_url",
   "scheduled_for"
 ]);
 
 /** Outcome fields the domain service owns — never writable through a command. */
 export const OUTCOME_PATHS = Object.freeze([
-  "review_state", "favcrm_campaign_id", "estimate", "delivery_stats", "sender_status", "approvals", "proposals"
+  "review_state", "favcrm_campaign_id", "undo_until", "last_test_at", "last_test_to",
+  "estimate", "delivery_stats", "sender_status", "approvals", "proposals"
 ]);
 
 const MAX_SUBJECT = 200;
 const MAX_PREHEADER = 300;
-// The contract caps one collection at 500 items (GADGET_LIMITS.collectionItems);
-// the definition declares the same bound, and these enforce it in the model.
+// The definition declares 1000/1050 as product intent; the shared contract
+// still clamps every collection at 500 items (GADGET_LIMITS.collectionItems),
+// so 500 is the bound a draft can actually hold — enforce that here.
 const MAX_ACCOUNTS = 500;
 const MAX_EXCLUSIONS = 500;
 const MAX_SECTIONS = 40;
-const MAX_CUSTOM_HTML = 200 * 1024;
 const MAX_LABEL = 200;
 const EMAILISH = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ISOISH = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
@@ -67,10 +68,19 @@ export function normalizeSection(input) {
     section.cta_url = cleanUrl(input.cta_url);
   }
   if (type === "image") section.image_url = cleanUrl(input.image_url);
-  // `custom_html` is stored as pasted and sanitized at the send boundary —
-  // `sanitizeCustomHtml` below is that boundary's pure half.
-  if (type === "custom_html") section.html = cleanMultiline(input.html, MAX_CUSTOM_HTML);
   return section;
+}
+
+/**
+ * The section types a write names that the draft cannot carry. `custom_html`
+ * is the deliberate one — declared by earlier copies of this contract but
+ * refused until the host renderer carries a real sanitizer; any other
+ * undeclared type is refused here too rather than silently dropped, so an
+ * agent learns the boundary instead of losing content to normalization.
+ */
+export function unsupportedSectionTypes(list) {
+  if (!Array.isArray(list)) return [];
+  return [...new Set(list.map((row) => cleanString(row?.type, 20)).filter((t) => t && !SECTION_TYPES.includes(t)))];
 }
 
 export function normalizeSections(list) {
@@ -199,49 +209,23 @@ export function missingForSend(draft) {
 }
 
 // ---------------------------------------------------------------------------
-// custom_html sanitization — the send-time boundary's pure half.
+// The draft write boundary — what a command may touch, and when.
 //
-// Pasted markup (Stripo/BEE/Mailchimp exports) arrives whole. The contract:
-// scripts, forms, tracking pixels, inline `on*` handlers and `javascript:`
-// URLs never reach a send. This is the pure, testable half; the domain
-// service's `sectionsToHtml` applies the same rules server-side before the
-// FavCRM mirror — two implementations of one contract, kept honest by the
-// shared test in test/unit.
+// `mutable` parity: the allowlist below mirrors the definition, and the
+// lifecycle lock mirrors `mutableWhen` — a draft whose review_state has left
+// the editable set is read-only here exactly as it is through `state_json`.
+// `custom_html` is refused outright: the host send path has no parser-based
+// sanitizer for pasted markup, so carrying it would mean a block the owner
+// approved but the FavCRM mirror drops. Refusal is the honest boundary until
+// one exists — covered in test/unit/model.test.ts.
 // ---------------------------------------------------------------------------
 
-const BLOCKED_TAGS = /<\/?\s*(script|form|iframe|object|embed|link|meta|base|noscript|template)\b[^>]*>/gi;
-const EVENT_HANDLERS = /\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi;
-const JAVASCRIPT_URL = /(href|src|action|formaction|xlink:href)\s*=\s*(["']?)\s*javascript:[^"'>\s]*\2/gi;
-const DATA_URL = /(href|src)\s*=\s*(["']?)\s*data:(?!image\/)[^"'>\s]*\2/gi;
-// 1x1 / zero-size tracking pixels: <img> whose declared size collapses to a dot.
-const TRACKING_PIXEL = /<img\b[^>]*?(?:width\s*=\s*["']?(?:0|1)["']?|height\s*=\s*["']?(?:0|1)["']?)[^>]*?(?:width\s*=\s*["']?(?:0|1)["']?|height\s*=\s*["']?(?:0|1)["']?)?[^>]*>/gi;
+/** The review states in which the draft's mutable surface is open. */
+export const OPEN_REVIEW_STATES = Object.freeze(["drafting", "in_review", "approved"]);
 
-/** Strip a custom_html block to sendable markup. Idempotent — safe to re-run. */
-export function sanitizeCustomHtml(html) {
-  let out = cleanMultiline(html, MAX_CUSTOM_HTML);
-  out = out.replace(BLOCKED_TAGS, "");
-  out = out.replace(EVENT_HANDLERS, "");
-  out = out.replace(JAVASCRIPT_URL, "");
-  out = out.replace(DATA_URL, "");
-  // A pixel is only tracking when it is both invisible AND sized to a dot —
-  // remove 1x1/0x0 images wholesale rather than guessing at intent.
-  out = out.replace(/<img\b[^>]*>/gi, (tag) => {
-    const w = tag.match(/width\s*=\s*["']?(\d+)/i);
-    const h = tag.match(/height\s*=\s*["']?(\d+)/i);
-    if (w && h && Number(w[1]) <= 1 && Number(h[1]) <= 1) return "";
-    if (w && Number(w[1]) === 0) return "";
-    if (h && Number(h[1]) === 0) return "";
-    return tag;
-  });
-  // <style> stays — email clients need it and it carries no script. What it
-  // cannot carry: a behaviour url or an expression, both IE-era script sinks.
-  out = out.replace(/expression\s*\(|behaviour\s*:|behavior\s*:/gi, "");
-  return out;
-}
-
-/** Whether a custom_html section survives sanitization with content left. */
-export function customHtmlSendable(html) {
-  return sanitizeCustomHtml(html).replace(/<[^>]*>/g, "").trim().length > 0;
+/** Whether a lifecycle value has closed the mutable surface (mutableWhen). */
+export function draftLocked(reviewState) {
+  return typeof reviewState === "string" && reviewState !== "" && !OPEN_REVIEW_STATES.includes(reviewState);
 }
 
 // ---------------------------------------------------------------------------
@@ -281,29 +265,52 @@ const COLLECTION_NORMALIZERS = {
 };
 
 /**
+ * Refuse a `sections` write that names a type the draft cannot carry —
+ * `custom_html` above all. The send path would render nothing for it, so
+ * accepting the write would promise a block no send can deliver.
+ */
+function refusedSectionWrite(kind, path, command) {
+  if (path !== "sections") return null;
+  const incoming =
+    kind === "collection.add" ? [command.item ?? command.value]
+    : kind === "collection.update" ? [command.value ?? command.patch ?? {}]
+    : Array.isArray(command.value) ? command.value : [];
+  const bad = unsupportedSectionTypes(incoming);
+  if (!bad.length) return null;
+  return issue(
+    "unsupported_section",
+    `Section type ${bad.map((b) => `"${b}"`).join(", ")} is not supported — sections are ${SECTION_TYPES.join(", ")}. Pasted HTML is refused until the send path can sanitize it.`
+  );
+}
+
+/**
  * Apply one declarative command to a draft. Returns `{ ok: true, draft }` or a
  * refusal envelope. `expectedRevision` is compare-and-swap — a stale base is a
- * conflict value, not an exception.
+ * conflict value, not an exception. `reviewState` is the campaign's effective
+ * review state (the outcome mirror, or the facet status mapped): outside the
+ * open set the mutable surface locks, mirroring the definition's mutableWhen.
  */
-export function applyCommandToDraft(draft, command, { expectedRevision = null, revision = 0 } = {}) {
+export function applyCommandToDraft(draft, command, { expectedRevision = null, revision = 0, reviewState = null } = {}) {
   if (!command || typeof command !== "object") return issue("invalid_command", "Command is not an object.");
   const kind = command.kind;
   if (expectedRevision !== null && expectedRevision !== revision) {
     return { ok: false, code: "revision_conflict", message: `Draft moved past revision ${expectedRevision} — read the current version before writing.` };
   }
+  const mutating = ["state.set", "state.merge", "collection.add", "collection.update", "collection.remove"].includes(kind);
+  if (mutating && draftLocked(reviewState)) {
+    return { ok: false, code: "state_locked", message: `Draft is read-only while review_state is "${reviewState}" — unschedule or undo through the domain to reopen it.` };
+  }
   const next = { ...normalizeDraft(draft) };
 
-  if (kind === "state.set") {
-    const path = command.path;
-    if (!pathMutable(path)) return issue("not_mutable", `${path} is not a draft field commands may write.`);
-    next[path] = COLLECTION_NORMALIZERS[path] ? COLLECTION_NORMALIZERS[path](command.value) : cleanString(command.value, 64 * 1024);
-    return { ok: true, draft: next };
-  }
-  if (kind === "state.merge") {
-    const value = command.value;
-    if (!value || typeof value !== "object" || Array.isArray(value)) return issue("invalid_command", "state.merge needs an object value.");
-    for (const [path, fieldValue] of Object.entries(value)) {
+  if (kind === "state.set" || kind === "state.merge") {
+    if (kind === "state.merge" && (typeof command.value !== "object" || command.value === null || Array.isArray(command.value))) {
+      return issue("invalid_command", "state.merge needs an object value.");
+    }
+    const pairs = kind === "state.set" ? [[command.path, command.value]] : Object.entries(command.value);
+    for (const [path, fieldValue] of pairs) {
       if (!pathMutable(path)) return issue("not_mutable", `${path} is not a draft field commands may write.`);
+      const refused = refusedSectionWrite(kind, path, { value: fieldValue });
+      if (refused) return refused;
       next[path] = COLLECTION_NORMALIZERS[path] ? COLLECTION_NORMALIZERS[path](fieldValue) : cleanString(fieldValue, 64 * 1024);
     }
     return { ok: true, draft: next };
@@ -311,6 +318,8 @@ export function applyCommandToDraft(draft, command, { expectedRevision = null, r
   if (kind === "collection.add") {
     const path = command.path;
     if (!pathMutable(path) || !COLLECTION_FIELDS.has(path)) return issue("not_mutable", `${path} is not a collection commands may write.`);
+    const refused = refusedSectionWrite(kind, path, command);
+    if (refused) return refused;
     const rows = [...(next[path] ?? []), command.item ?? command.value];
     const normalized = COLLECTION_NORMALIZERS[path](rows);
     next[path] = normalized;
@@ -321,6 +330,9 @@ export function applyCommandToDraft(draft, command, { expectedRevision = null, r
     if (!pathMutable(path) || !COLLECTION_FIELDS.has(path)) return issue("not_mutable", `${path} is not a collection commands may write.`);
     const itemId = command.itemId ?? command.id;
     const patch = command.value ?? command.patch ?? {};
+    if (patch && typeof patch === "object" && typeof patch.type === "string" && !SECTION_TYPES.includes(cleanString(patch.type, 20))) {
+      return issue("unsupported_section", `Section type "${cleanString(patch.type, 20)}" is not supported — sections are ${SECTION_TYPES.join(", ")}. Pasted HTML is refused until the send path can sanitize it.`);
+    }
     const rows = (next[path] ?? []).map((row) => (row.id === itemId || row.account_id === itemId || row.segment_id === itemId) ? { ...row, ...patch } : row);
     next[path] = COLLECTION_NORMALIZERS[path](rows);
     return { ok: true, draft: next };
@@ -354,10 +366,13 @@ export function draftToState(draft) {
 }
 
 /**
- * Sections → sendable HTML, the facet-side half of `sectionsToHtml`. The domain
+ * Sections → preview HTML, the facet-side half of `sectionsToHtml`. The domain
  * service renders the canonical version host-side before the FavCRM mirror;
- * this exists for the canvas preview and the sanitize contract test — two
- * implementations of one contract, kept honest by test/unit/sanitize.test.ts.
+ * this exists for the canvas preview. One contract both sides keep: typed
+ * fields are escaped into fixed tags, and anything the draft cannot carry —
+ * `custom_html` included — never reaches the output. The gadget half is
+ * covered by test/unit/model.test.ts; the host half by the API's
+ * definition↔service continuity test.
  */
 export function sectionsToHtml(sections) {
   const parts = [];
@@ -368,7 +383,6 @@ export function sectionsToHtml(sections) {
       parts.push(`<p><a href="${escapeHtml(section.cta_url)}">${escapeHtml(section.cta_label)}</a></p>`);
     }
     if (section.type === "image" && section.image_url) parts.push(`<img src="${escapeHtml(section.image_url)}" alt="">`);
-    if (section.type === "custom_html" && section.html) parts.push(sanitizeCustomHtml(section.html));
   }
   return parts.join("\n");
 }

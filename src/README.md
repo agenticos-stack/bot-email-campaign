@@ -25,7 +25,7 @@ imports between these files resolved by the runtime itself.
 | `storage.js` | The SQLite adapter `server.js` uses — the one place table names and columns are named. |
 | `config.js` | Instance configuration: display defaults and estimate policy. |
 | `doors.js` | Every door call in one place — a contract change on a door touches this file, not every method that happens to use it. |
-| `model.js` | Pure functions with no I/O: draft normalization, the `mutable` allowlist, `custom_html` sanitization, command application. Unit-testable outside the runtime. |
+| `model.js` | Pure functions with no I/O: draft normalization, the `mutable` allowlist, the `mutableWhen` lifecycle lock, the `custom_html` refusal boundary, command application. Unit-testable outside the runtime. |
 | `grant-request.js` | The `gadget:grant-door` / `gadget:activate-door` / `gadget:grant-result` / `gadget:doors-changed` postMessage contract between the sandboxed canvas and its host. |
 | `agent.md` | Working instructions for the agent that drafts and proposes here. |
 | `README.md` | This file. |
@@ -61,17 +61,17 @@ campaigns routes, so the journeys exercise the real domain service.
 
 ## The sections model
 
-Content is typed blocks — `heading`, `body`, `cta`, `image` — plus the
-`custom_html` escape hatch: one pasted block (a whole exported email from
-Stripo/BEE/Mailchimp-style editors, or a single block). `custom_html` is
-sanitized at the send boundary — scripts, forms, tracking pixels, inline
-`on*` handlers and `javascript:` URLs are removed — and the platform still
-appends sender identity, the legal footer and unsubscribe handling on every
-send; the editor cannot remove them. An assistant proposal for an HTML block
-is a whole-block replacement.
+Content is typed blocks — `heading`, `body`, `cta`, `image` — and nothing
+else. There is no raw-HTML escape hatch: pasted markup (a whole exported
+email from Stripo/BEE/Mailchimp-style editors, or a single block) is refused
+at the draft write boundary with `unsupported_section`, because neither the
+gadget runtime nor the host send path has a parser-based sanitizer to carry
+it safely. The platform still appends sender identity, the legal footer and
+unsubscribe handling on every send; the editor cannot remove them.
 
 ## Testing
 
 `pnpm build` packs the archive and `pnpm validate` checks it; `pnpm test`
 runs the host (tsx) and unit (vitest) suites — command surface, proposal
-accept/reject, and the `custom_html` sanitization contract are covered.
+accept/reject, the `custom_html` refusal boundary and the `mutableWhen`
+lifecycle lock are covered.

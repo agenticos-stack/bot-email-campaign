@@ -3,9 +3,8 @@
 // The accepted preview renders with HTML-string templates; this module is the
 // escaping boundary that makes that safe. Every untrusted value (a draft
 // field, an audience label, a proposal title) goes through `esc()` at the
-// render site — never raw. The only markup that is not escaped is the
-// `custom_html` preview, which renders inside a sandboxed `<iframe srcdoc>`
-// after server-side sanitization, never into this document.
+// render site — never raw. There is no exception: no markup reaches this
+// document unescaped.
 
 import { t } from "./i18n.js";
 
