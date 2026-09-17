@@ -77,7 +77,20 @@ export function normalizeSection(input) {
   // `custom_html` is stored verbatim — the boundary is the sandboxed preview
   // iframe and the recipient's client, never a regex over markup.
   if (type === "custom_html") section.html = cleanMultiline(input.html, MAX_CUSTOM_HTML);
+  // `origin` is provenance the facet sets when a block lands (only the
+  // proposal-accept path sets it today). Carried so a whole-draft save keeps
+  // the marker; it is advisory, not a trust boundary — a whole-array write can
+  // carry any marker, so the review card also lists the markup's facts.
+  const origin = normalizeOrigin(input.origin);
+  if (origin) section.origin = origin;
   return section;
+}
+
+function normalizeOrigin(input) {
+  if (!input || typeof input !== "object") return null;
+  const via = cleanString(input.via, 20);
+  if (via !== "proposal") return null;
+  return { via, proposalId: cleanString(input.proposalId, 64), label: cleanString(input.label, MAX_LABEL) };
 }
 
 /**
@@ -374,10 +387,13 @@ export function draftToState(draft) {
  * service renders the canonical version host-side before the FavCRM mirror;
  * this exists for the canvas preview. One contract both sides keep: typed
  * fields are escaped into fixed tags, and a `custom_html` block is emitted
- * verbatim — owner-authored markup whose only safe display surface is a
- * `sandbox`ed iframe (no scripts, opaque origin). Anything the draft cannot
- * carry never reaches the output. The gadget half is covered by
- * test/unit/model.test.ts; the host half by the API's definition↔service
+ * verbatim — markup carried from the draft, whoever wrote it, whose only safe
+ * display surface is a `sandbox`ed iframe (no scripts, opaque origin). The
+ * writer is disclosed at review (`customHtmlFacts` + `origin`), not enforced:
+ * nothing distinguishes pasted markup from agent-written markup at this point,
+ * so the gate shows what the markup does instead of a picture of it. Anything
+ * the draft cannot carry never reaches the output. The gadget half is covered
+ * by test/unit/model.test.ts; the host half by the API's definition↔service
  * continuity test.
  */
 export function sectionsToHtml(sections) {
@@ -396,4 +412,107 @@ export function sectionsToHtml(sections) {
 
 function escapeHtml(value) {
   return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/**
+ * What a pasted-HTML block does, stated as facts for the review gate — never
+ * a verdict, and deliberately NOT a DOM parse: a parser tidies its input and
+ * could hide the conditional comments and malformed fragments this exists to
+ * disclose. The markup is still emitted verbatim; this names what "verbatim"
+ * contains so the approver reads the markup's behaviour, not a rendering of it
+ * (rendering is exactly what hides a 1×1 remote pixel, a `display:none` block
+ * or an Outlook-only conditional). Patterns over indicators, bounded caps.
+ */
+export function customHtmlFacts(html) {
+  const text = typeof html === "string" ? html : "";
+  const links = [];
+  const imageHosts = new Set();
+  const assetHosts = new Set();
+  if (text) {
+    const val = (m) => (m[1] ?? m[2] ?? m[3] ?? "").trim();
+    // Outbound links — each <a href> that leaves the page, host and href both
+    // listed because link text disagreeing with its target is the tell.
+    for (const m of text.matchAll(/<a\b[^>]*?\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/gi)) {
+      const href = val(m);
+      const host = urlHost(href);
+      if (host && links.length < 24) links.push({ host, href: href.slice(0, 300) });
+    }
+    // Remote images — a tracking pixel's host is the fact that matters.
+    for (const m of text.matchAll(/<img\b[^>]*?\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/gi)) {
+      const host = urlHost(val(m));
+      if (host) imageHosts.add(host);
+    }
+    // Remote CSS/scripts — <link>/<script src>, @import, url(http…) in styles.
+    for (const m of text.matchAll(/<(?:script|link)\b[^>]*?\b(?:src|href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/gi)) {
+      const host = urlHost(val(m));
+      if (host) assetHosts.add(host);
+    }
+    for (const m of text.matchAll(/@import\s+(?:url\(\s*)?["']?(https?:\/\/[^\s"')]+)/gi)) {
+      const host = urlHost(m[1]);
+      if (host) assetHosts.add(host);
+    }
+    for (const m of text.matchAll(/\burl\(\s*["']?(https?:\/\/[^\s"')]+)["']?\s*\)/gi)) {
+      const host = urlHost(m[1]);
+      if (host) assetHosts.add(host);
+    }
+  }
+  const count = (re) => (text.match(re) ?? []).length;
+  return {
+    bytes: new TextEncoder().encode(text).length,
+    links,
+    imageHosts: [...imageHosts],
+    assetHosts: [...assetHosts],
+    // Hidden or zero-size content: display/visibility, mso-hide, 0–1px boxes,
+    // zero font/line-height, opacity:0 — the tricks rendering conceals.
+    hiddenCount:
+      count(/display\s*:\s*none/gi) +
+      count(/visibility\s*:\s*hidden/gi) +
+      count(/mso-hide\s*:\s*all/gi) +
+      count(/\b(?:width|height)\s*=\s*["']?[01](?:px)?["'\s/>]/gi) +
+      count(/\b(?:width|height|font-size|line-height)\s*:\s*(?:0(?:px|pt|em)?|1px)\b/gi) +
+      count(/opacity\s*:\s*0(?:\.0+)?(?!\d)/gi),
+    hasBaseTag: /<base\b/i.test(text),
+    conditionalCount: count(/<!--\s*\[if\b/gi)
+  };
+}
+
+function urlHost(value) {
+  const url = cleanString(value, 2048);
+  if (!/^https?:\/\//i.test(url)) return "";
+  try { return new URL(url).host; } catch { return "" }
+}
+
+/**
+ * Mark the `custom_html` blocks a proposal's accepted command batch touched —
+ * a new id or a changed `html` — with `origin: {via:"proposal", …}`. The
+ * review step then shows "staged by a proposal" beside "added by a direct
+ * edit", so agent-staged markup and directly-written markup never look alike
+ * at the gate. Returns the count marked; the caller persists the draft.
+ */
+export function stampProposalSections(sections, before, { proposalId = "", label = "" } = {}) {
+  const previous = new Map((before ?? []).map((s) => [s?.id, s?.html]));
+  let marked = 0;
+  for (const section of sections ?? []) {
+    if (section?.type !== "custom_html") continue;
+    if (previous.get(section.id) === section.html) continue;
+    section.origin = { via: "proposal", proposalId, label };
+    marked += 1;
+  }
+  return marked;
+}
+
+/**
+ * Collect every `custom_html` section inside an arbitrary payload — a
+ * proposal's staged commands nest them differently than a draft does, so this
+ * walks rather than shapes. Depth-bounded; returns the section objects.
+ */
+export function findCustomHtmlSections(value, depth = 0, out = []) {
+  if (depth > 6 || !value || typeof value !== "object") return out;
+  if (Array.isArray(value)) {
+    for (const item of value) findCustomHtmlSections(item, depth + 1, out);
+    return out;
+  }
+  if (value.type === "custom_html") out.push(value);
+  for (const item of Object.values(value)) findCustomHtmlSections(item, depth + 1, out);
+  return out;
 }

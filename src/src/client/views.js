@@ -15,7 +15,7 @@
 // through `esc()` at the render site. There is no raw-HTML escape hatch.
 
 import { EMAIL_CAMPAIGN_DEFINITION } from "../../../definition.ts";
-import { normalizeDraft } from "../../model.js";
+import { customHtmlFacts, findCustomHtmlSections, normalizeDraft } from "../../model.js";
 import { button, dialogShell, esc, field, icon } from "./dom.js";
 import { formatSchedule, number, t } from "./i18n.js";
 import {
@@ -425,7 +425,15 @@ function blockEditor(s, i, count, locked) {
   else if (s.type === "body") body = `<textarea class="field-control" data-block="${esc(s.id)}" data-bf="body" data-key="blk-${esc(s.id)}-b" rows="4" placeholder="${t("Write this block's content…", "撰寫這一段的內容…")}" ${locked ? "disabled" : ""}>${esc(s.body)}</textarea>`;
   else if (s.type === "cta") body = `<input class="field-control" data-block="${esc(s.id)}" data-bf="cta_label" data-key="blk-${esc(s.id)}-l" value="${esc(s.cta_label)}" placeholder="${t("Button label", "按鈕文字")}" ${locked ? "disabled" : ""}><input class="field-control" style="margin-top:8px" data-block="${esc(s.id)}" data-bf="cta_url" data-key="blk-${esc(s.id)}-u" value="${esc(s.cta_url)}" placeholder="https://" ${locked ? "disabled" : ""}>`;
   else if (s.type === "image") body = `<input class="field-control" data-block="${esc(s.id)}" data-bf="image_url" data-key="blk-${esc(s.id)}-i" value="${esc(s.image_url)}" placeholder="${t("Image URL (https://…)", "圖片網址（https://…）")}" ${locked ? "disabled" : ""}>`;
-  else if (s.type === "custom_html") body = `<textarea class="field-control code" data-block="${esc(s.id)}" data-bf="html" data-key="blk-${esc(s.id)}-x" rows="8" placeholder="<!doctype html>…" ${locked ? "disabled" : ""}>${esc(s.html ?? "")}</textarea><p class="field-hint">${t("Sent as-is — the preview renders it in a sandbox, and inboxes strip scripts and forms.", "原樣發送——預覽於沙盒中顯示，收件匣會移除指令碼及表單。")}</p>`;
+  else if (s.type === "custom_html") {
+    const f = customHtmlFacts(s.html);
+    const bits = [
+      f.links.length ? t(`${f.links.length} link${f.links.length === 1 ? "" : "s"}`, `${f.links.length} 個連結`) : "",
+      f.imageHosts.length || f.assetHosts.length ? t(`remote: ${[...new Set([...f.imageHosts, ...f.assetHosts])].join(", ")}`, `遠端資源：${[...new Set([...f.imageHosts, ...f.assetHosts])].join(", ")}`) : "",
+      f.hiddenCount ? t(`${f.hiddenCount} hidden`, `${f.hiddenCount} 個隱藏內容`) : ""
+    ].filter(Boolean);
+    body = `<textarea class="field-control code" data-block="${esc(s.id)}" data-bf="html" data-key="blk-${esc(s.id)}-x" rows="8" placeholder="<!doctype html>…" ${locked ? "disabled" : ""}>${esc(s.html ?? "")}</textarea><p class="field-hint">${t("Sent as-is — the preview renders it in a sandbox, and inboxes strip scripts and forms.", "原樣發送——預覽於沙盒中顯示，收件匣會移除指令碼及表單。")}${s.html && bits.length ? `<br><span class="fact-line">${esc(t(`${formatKb(f.bytes)} — ${bits.join(" · ")}`, `${formatKb(f.bytes)}——${bits.join(" · ")}`))}</span>` : ""}</p>`;
+  }
   return `<div class="section-block">
     <div class="section-bar">
       <span class="badge">${icon(meta[2])} ${t(meta[0], meta[1])}</span>
@@ -503,6 +511,76 @@ function previewPane() {
 
 // ------------------------------------------------------------- review step
 
+/** Byte size for the facts card — one decimal under a megabyte. */
+function formatKb(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  return `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+/**
+ * The pasted-HTML disclosure at the send gate. The live preview renders the
+ * block inside a sandbox — and a render is exactly what hides a 1×1 pixel,
+ * hidden text or an Outlook-only conditional. So the gate lists what the
+ * markup does instead: outbound link hosts + hrefs, remote image and asset
+ * hosts, hidden/zero-size indicators, a <base> tag, conditional blocks, the
+ * block's size, and how it got into the draft (`origin` — a proposal's label
+ * vs "added by a direct edit"). Facts, not verdicts.
+ */
+function htmlFactsCard(d) {
+  const blocks = (d.sections ?? []).filter((s) => s.type === "custom_html");
+  if (!blocks.length) return "";
+  return `<section class="card">
+    <div class="card-head"><div><h3>${t("Pasted HTML in this draft", "草稿中的貼上 HTML")}</h3><p class="meta">${t("What each block actually does — the preview shows a render; this lists the facts.", "各區塊的實際內容——預覽只顯示渲染結果，此處列出事實。")}</p></div><span class="meta">${t(`${blocks.length} block${blocks.length === 1 ? "" : "s"}`, `${blocks.length} 個區塊`)}</span></div>
+    <div class="card-body"><div class="stack">
+      ${blocks.map((s) => htmlFactRows(s, d.sections.indexOf(s) + 1)).join("")}
+      <p class="field-hint">${t("Facts, not a verdict — the markup sends as pasted, and the platform still appends sender identity, legal footer and unsubscribe.", "以上為事實而非評估——標記內容按貼上原樣發送，平台仍會附加寄件者身分、法律頁尾及取消訂閱。")}</p>
+    </div></div>
+  </section>`;
+}
+
+function htmlFactRows(s, index, provenance = "") {
+  const f = customHtmlFacts(s.html);
+  const origin = provenance || (s.origin?.via === "proposal"
+    ? t(`staged by proposal${s.origin.label ? ` "${s.origin.label}"` : ""}`, `由提案${s.origin.label ? `「${s.origin.label}」` : ""}加入`)
+    : t("added by a direct edit", "由直接編輯加入"));
+  const rows = [];
+  if (f.links.length) rows.push(dlRow(t("Links", "連結"), f.links.map((l) => `${esc(l.host)} <span class="faint">—</span> <code>${esc(l.href)}</code>`).join("<br>")));
+  if (f.imageHosts.length) rows.push(dlRow(t("Remote images", "遠端圖片"), esc(f.imageHosts.join(", "))));
+  if (f.assetHosts.length) rows.push(dlRow(t("Remote CSS / scripts", "遠端 CSS／指令碼"), esc(f.assetHosts.join(", "))));
+  const flags = [
+    f.hiddenCount ? t(`${f.hiddenCount} hidden or zero-size`, `${f.hiddenCount} 個隱藏或零尺寸`) : "",
+    f.hasBaseTag ? t("a <base> tag", "一個 <base> 標籤") : "",
+    f.conditionalCount ? t(`${f.conditionalCount} Outlook-only conditional${f.conditionalCount === 1 ? "" : "s"}`, `${f.conditionalCount} 個僅 Outlook 顯示的條件區塊`) : ""
+  ].filter(Boolean);
+  if (flags.length) rows.push(dlRow(t("Hidden / flags", "隱藏／旗標"), esc(flags.join(" · "))));
+  return `<div class="fact-block">
+    <div class="fact-head"><strong>${esc(t(`Block ${index}`, `區塊 ${index}`))}</strong><span class="meta">${formatKb(f.bytes)} · ${esc(origin)}</span></div>
+    ${rows.length ? `<dl class="dl dl-facts">${rows.join("")}</dl>` : `<p class="meta">${t("No links, remote assets or hidden content detected.", "未偵測到連結、遠端資源或隱藏內容。")}</p>`}
+  </div>`;
+}
+
+/** One compact line for the send-confirm dialog — the facts card compressed. */
+function htmlFactsSummary(d) {
+  const blocks = (d.sections ?? []).filter((s) => s.type === "custom_html");
+  if (!blocks.length) return "";
+  const hosts = new Set();
+  const assets = new Set();
+  let hidden = 0;
+  for (const s of blocks) {
+    const f = customHtmlFacts(s.html);
+    f.links.forEach((l) => hosts.add(l.host));
+    f.imageHosts.forEach((h) => assets.add(h));
+    f.assetHosts.forEach((h) => assets.add(h));
+    hidden += f.hiddenCount;
+  }
+  const parts = [
+    hosts.size ? t(`links to ${[...hosts].join(", ")}`, `連結至 ${[...hosts].join(", ")}`) : "",
+    assets.size ? t(`remote assets from ${[...assets].join(", ")}`, `遠端資源來自 ${[...assets].join(", ")}`) : "",
+    hidden ? t(`${hidden} hidden`, `${hidden} 個隱藏內容`) : ""
+  ].filter(Boolean);
+  return `<p class="field-hint">${esc(t(`${blocks.length} pasted-HTML block${blocks.length === 1 ? "" : "s"}${parts.length ? ` — ${parts.join("; ")}` : ""}`, `${blocks.length} 個貼上 HTML 區塊${parts.length ? `——${parts.join("；")}` : ""}`))}</p>`;
+}
+
 function reviewStep() {
   const c = S.campaign;
   const d = S.edit ?? normalizeDraft({});
@@ -548,6 +626,8 @@ function reviewStep() {
           ${dlRow(t("Email sender", "電郵寄件者"), capOk("email_sender") && S.sender?.from_email ? esc(S.sender.from_email) : senderUnknown ? `<span class="danger-text">${esc(t(`Could not check — ${S.senderError}`, `無法檢查——${S.senderError}`))}</span>` : `<span class="danger-text">${t("Not set", "尚未設定")}</span>`)}
         </dl></div>
       </section>
+
+      ${htmlFactsCard(d)}
 
       <section class="card card--blocking">
         <div class="card-head">
@@ -742,10 +822,16 @@ export function openSender() {
 export function openProposal() {
   const p = (S.proposals ?? []).filter((x) => x.status === "open" || x.state === "pending").at(-1) ?? S.proposals?.[0];
   if (!p) return;
+  // A proposal carrying pasted HTML is disclosed here, at the accept decision
+  // — the same facts the review gate lists, so accepting is not blind.
+  const staged = findCustomHtmlSections(p.payload);
+  const stagedHtml = staged.length
+    ? `<div class="fact-staged"><p class="field-label">${t(`Pasted HTML this proposal adds — ${staged.length} block${staged.length === 1 ? "" : "s"}`, `此提案加入的貼上 HTML——${staged.length} 個區塊`)}</p>${staged.map((s, i) => htmlFactRows(s, i + 1, t("in this proposal", "此提案包含"))).join("")}</div>`
+    : "";
   dialogShell(
     t("Assistant proposal", "助理建議"),
     t(`Base revision ${p.base_revision ?? "—"}`, `基礎修訂版本 ${p.base_revision ?? "—"}`),
-    `<p>${esc(p.rationale || t("Changes pending review", "變更待檢閱"))}</p><p class="field-hint">${esc(t("Accepting applies the assistant's changes on top of your saved draft. Rejecting discards them.", "接受會將助理的變更套用於已儲存的草稿；拒絕則捨棄變更。"))}</p>`,
+    `<p>${esc(p.rationale || t("Changes pending review", "變更待檢閱"))}</p><p class="field-hint">${esc(t("Accepting applies the assistant's changes on top of your saved draft. Rejecting discards them.", "接受會將助理的變更套用於已儲存的草稿；拒絕則捨棄變更。"))}</p>${stagedHtml}`,
     `${button("dismiss-proposal", t("Reject", "拒絕"), { kind: "quiet", key: "prop-no" })}${button("accept-proposal", t("Accept", "接受"), { kind: "primary", key: "prop-yes" })}`
   );
 }
@@ -760,7 +846,7 @@ export function openConfirm() {
       ${dlRow(t("Subject", "主旨"), esc(d.subject || "—"))}
       ${dlRow(t("Audience", "受眾"), esc(capOk("favcrm_connector") ? sourceLabel(d) : t("Unresolved — no CRM", "未解析 — 無 CRM")))}
       ${dlRow(t("Timing", "時間"), isScheduled ? esc(formatSchedule(d.scheduled_for)) : t("On approval", "核准後"))}
-    </dl>`,
+    </dl>${htmlFactsSummary(d)}`,
     `${button("close-dialog", t("Cancel", "取消"), { kind: "quiet", key: "send-cancel" })}${button("confirm-send", isScheduled ? t("Approve & schedule", "核准並排程") : t("Approve & send", "審批並發送"), { kind: "primary", ic: "check", key: "send-ok" })}`
   );
 }

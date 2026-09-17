@@ -346,6 +346,16 @@ tr:hover .row-tools, tr:focus-within .row-tools, .row-tools:focus-within { opaci
 .dl .dl-total { padding-top: 11px; margin-top: 6px; border-top: 1px solid var(--line-2); }
 .dl .dl-total dt { color: var(--ink); font-weight: 600; }
 .dl .dl-total dd { font-size: var(--t-title); font-weight: 650; }
+.fact-block { padding: 10px 0; }
+.fact-block + .fact-block { border-top: 1px solid var(--line); }
+.fact-block .fact-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 2px; }
+.fact-block .fact-head .meta { font-size: var(--t-meta); }
+.fact-block .meta { line-height: 1.5; }
+.dl-facts > div { align-items: flex-start; padding: 5px 0; }
+.dl-facts dd { text-align: start; font-weight: 400; max-width: 78%; overflow-wrap: anywhere; }
+.dl-facts dd code { font-size: 0.92em; }
+.fact-line { color: var(--ink-2); }
+.fact-staged { margin-top: 10px; }
 
 .checks { display: grid; gap: 2px; }
 .check { display: flex; gap: 11px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--line); }

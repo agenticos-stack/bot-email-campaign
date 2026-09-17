@@ -19,14 +19,18 @@
  * 3. `estimate`/`delivery_stats` are collections of {metric, value} rows so a
  *    declarative view can render them without a bespoke widget type.
  * 4. Sections are the typed blocks in `EMAIL_CAMPAIGN_SECTION_TYPES`.
- *    `custom_html` is the owner's paste-a-whole-email escape hatch: stored
+ *    `custom_html` is the paste-a-whole-email escape hatch: stored
  *    verbatim, never executed by the gadget — canvas previews render it
  *    inside a `sandbox`ed iframe (the sandbox is the boundary, not a
  *    sanitizer), and the send path emits it as-is, the same trust model an
- *    ESP's code block uses: owner-authored markup for their own customers,
- *    with the approval gate ahead of it. Receiving clients strip active
- *    content. The platform still appends sender identity, legal footer and
- *    unsubscribe on every send, which no section can remove.
+ *    ESP's code block uses: markup carried from the draft, whoever wrote
+ *    it — the mutable allowlist does not distinguish owner-typed from
+ *    agent-written markup — so the review gate discloses what the markup
+ *    does (`customHtmlFacts`: link hosts + hrefs, remote image/asset
+ *    hosts, hidden or zero-size count, size) and how it got there
+ *    (`origin`: proposal-staged vs direct edit). Receiving clients strip
+ *    active content. The platform still appends sender identity, legal
+ *    footer and unsubscribe on every send, which no section can remove.
  */
 
 import { GADGET_DEFINITION_SCHEMA } from "@agenticos-dev/bot-contract";

@@ -62,11 +62,15 @@ campaigns routes, so the journeys exercise the real domain service.
 ## The sections model
 
 Content is typed blocks — `heading`, `body`, `cta`, `image` — plus
-`custom_html` for owner-pasted markup (a whole exported email from
+`custom_html` for pasted markup (a whole exported email from
 Stripo/BEE/Mailchimp-style editors, or a single block). `custom_html` is
 stored verbatim: the canvas preview renders it inside a `sandbox`ed iframe
-and the send path emits it as-is — owner-authored markup for the owner's own
-audience, behind the approval gate. Any undeclared type is refused at the
+and the send path emits it as-is — markup carried from the draft, whoever
+wrote it, behind the approval gate. Since the mutable boundary cannot tell
+a pasted block from an agent-written one, the review step discloses what
+each block does (`customHtmlFacts`: link hosts + hrefs, remote image/asset
+hosts, hidden or zero-size count, size) and how it got there (`origin`:
+proposal-staged vs direct edit). Any undeclared type is refused at the
 draft write boundary with `unsupported_section`. The platform still appends
 sender identity, the legal footer and unsubscribe handling on every send;
 the editor cannot remove them.

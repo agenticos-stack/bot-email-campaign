@@ -32,7 +32,10 @@
     firstRun: 'empty=1&favcrm=0&sender=0&schedule=0&workspace=0',
     noCrm: 'favcrm=0',
     noSender: 'sender=0',
-    proposal: 'proposal=1'
+    senderRefused: 'sender=refused',
+    pastedHtml: 'html=1',
+    proposal: 'proposal=1',
+    proposalHtml: 'proposal=html'
   };
   let frameUrl = $derived(`/canvas?locale=${locale}${scenarioParams[scenario] ? '&' + scenarioParams[scenario] : ''}`);
   const adapter = createFixtureChatAdapter({
@@ -62,7 +65,7 @@
     {#if localRuntime}<span class="runtime-mode" title="Reads and selection use SQLite. Setup, providers, scheduling and publishing are unavailable.">Local SQLite</span>{:else}
     <label for="fixture-scenario">Scenario</label>
     <select id="fixture-scenario" value={scenario} onchange={event => changeScenario(event.currentTarget.value)} title="Switching scenarios resets canvas edits.">
-      <option value="connected">Connected workspace</option><option value="firstRun">First run · nothing granted</option><option value="noCrm">CRM not connected</option><option value="noSender">Sender missing</option><option value="proposal">Proposal pending</option>
+      <option value="connected">Connected workspace</option><option value="firstRun">First run · nothing granted</option><option value="noCrm">CRM not connected</option><option value="noSender">Sender missing</option><option value="senderRefused">Sender check refused</option><option value="pastedHtml">Pasted HTML block</option><option value="proposal">Proposal pending</option><option value="proposalHtml">Proposal adds pasted HTML</option>
     </select>
     {/if}
     <button class="chat-toggle" aria-expanded={chatOpen} onclick={() => { chatOpen = !chatOpen; mobilePane = chatOpen ? "chat" : "canvas"; }}>{chatOpen ? "Hide conversation" : "Show conversation"}</button>

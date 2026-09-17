@@ -11,6 +11,7 @@ import {
   SECTION_TYPES,
   applyCommandToDraft,
   audienceKey,
+  customHtmlFacts,
   draftFingerprint,
   draftLocked,
   draftToState,
@@ -19,6 +20,7 @@ import {
   normalizeSection,
   normalizeSections,
   sectionsToHtml,
+  stampProposalSections,
   unsupportedSectionTypes
 } from "../../src/model.js";
 
@@ -286,5 +288,79 @@ describe("draftToState / sectionsToHtml", () => {
     // nothing.
     expect(sectionsToHtml([{ type: "custom_html", html: "<p>pasted</p>" }])).toBe("<p>pasted</p>");
     expect(sectionsToHtml([{ type: "banner", body: "x" }])).toBe("");
+  });
+});
+
+describe("customHtmlFacts — the review gate's disclosure", () => {
+  it("lists outbound link hosts with their hrefs", () => {
+    const f = customHtmlFacts(
+      `<p><a href="https://shop.example.com/offers?a=1">Sale</a></p><a href='https://cdn.example.net/x'>x</a><a href="mailto:a@b.c">mail</a>`
+    );
+    expect(f.links).toEqual([
+      { host: "shop.example.com", href: "https://shop.example.com/offers?a=1" },
+      { host: "cdn.example.net", href: "https://cdn.example.net/x" }
+    ]);
+  });
+
+  it("lists remote image and asset hosts separately", () => {
+    const f = customHtmlFacts(
+      `<img src="https://px.tracker.test/1x1.png"><link href="https://fonts.example.com/a.css" rel="stylesheet"><style>@import "https://x.test/y.css"; .a{background:url(https://i.test/b.png)}</style>`
+    );
+    expect(f.imageHosts).toEqual(["px.tracker.test"]);
+    expect(f.assetHosts).toEqual(expect.arrayContaining(["fonts.example.com", "x.test", "i.test"]));
+  });
+
+  it("counts hidden and zero-size indicators — the tricks a render hides", () => {
+    const f = customHtmlFacts(
+      `<div style="display:none">x</div><span style="visibility:hidden">y</span><img src="https://t.test/p.gif" width="1" height="1"><p style="font-size:0;line-height:0">z</p>`
+    );
+    expect(f.hiddenCount).toBeGreaterThanOrEqual(6);
+    const clean = customHtmlFacts("<p>visible</p>");
+    expect(clean.hiddenCount).toBe(0);
+  });
+
+  it("flags a <base> tag and mso conditional comments, and reports the size", () => {
+    const f = customHtmlFacts(`<base href="https://x.test/"><!--[if mso]><b>outlook</b><![endif]--><p>body</p>`);
+    expect(f.hasBaseTag).toBe(true);
+    expect(f.conditionalCount).toBe(1);
+    expect(f.bytes).toBe(new TextEncoder().encode(`<base href="https://x.test/"><!--[if mso]><b>outlook</b><![endif]--><p>body</p>`).length);
+  });
+
+  it("returns empty facts for an empty block", () => {
+    const f = customHtmlFacts("");
+    expect(f.links).toEqual([]);
+    expect(f.hiddenCount).toBe(0);
+    expect(f.bytes).toBe(0);
+  });
+});
+
+describe("section provenance — who wrote a pasted block", () => {
+  it("carries a proposal origin through normalization and whole-draft saves", () => {
+    const s = normalizeSection({ type: "custom_html", html: "<p>x</p>", origin: { via: "proposal", proposalId: "pp_1", label: "Spring copy" } });
+    expect(s.origin).toEqual({ via: "proposal", proposalId: "pp_1", label: "Spring copy" });
+    const d = normalizeDraft({ sections: [s] });
+    expect(d.sections[0].origin).toEqual(s.origin);
+    // A marker naming anything but the proposal path is not carried — the
+    // facet only ever sets `via: "proposal"`.
+    expect(normalizeSection({ type: "custom_html", html: "x", origin: { via: "owner" } }).origin).toBeUndefined();
+  });
+
+  it("marks custom_html blocks a proposal added or rewrote — and leaves the rest", () => {
+    const before = [
+      { id: "a", type: "custom_html", html: "<p>old</p>" },
+      { id: "b", type: "body", body: "keep" }
+    ];
+    const after = [
+      { id: "a", type: "custom_html", html: "<p>old</p>" },
+      { id: "b", type: "body", body: "keep" },
+      { id: "c", type: "custom_html", html: "<p>new</p>" }
+    ];
+    expect(stampProposalSections(after, before, { proposalId: "pp_9", label: "Add footer" })).toBe(1);
+    expect(after[2].origin).toEqual({ via: "proposal", proposalId: "pp_9", label: "Add footer" });
+    expect(after[0].origin).toBeUndefined();
+    // A rewrite of the same block's html marks it too.
+    const changed = [{ id: "a", type: "custom_html", html: "<p>edited</p>" }];
+    expect(stampProposalSections(changed, before, { proposalId: "pp_9", label: "Add footer" })).toBe(1);
+    expect(changed[0].origin.label).toBe("Add footer");
   });
 });

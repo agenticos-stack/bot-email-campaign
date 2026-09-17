@@ -43,6 +43,7 @@ import {
   normalizeSections,
   SECTION_TYPES,
   sectionsToHtml,
+  stampProposalSections,
   unsupportedSectionTypes
 } from "./model.js";
 import { normalizeConfig, configIssues } from "./config.js";
@@ -370,10 +371,20 @@ export class Gadget extends DurableObject {
       }
       const commands = Array.isArray(proposal.payload?.commands) ? proposal.payload.commands : [];
       let campaign = this.storage.getCampaign(proposal.campaignId);
+      const beforeSections = campaign.draft?.sections ?? [];
       for (const command of commands) {
         const applied = applyCommandToDraft(campaign.draft, command, { expectedRevision: null, revision: campaign.revision, reviewState: effectiveReviewState(campaign) });
         if (!applied.ok) return applied;
         const saved = this.storage.saveCampaignDraft({ id: campaign.id, draft: applied.draft, expectedRevision: null, now: this.now() });
+        if (!saved.ok) return saved;
+        campaign = saved.campaign;
+      }
+      // Provenance for the review gate: a custom_html block this batch added
+      // or rewrote carries `via: "proposal"` + the proposal's label, so it
+      // never looks identical to one pasted in the canvas. Advisory — the
+      // gate's substance is the facts list, the sandboxed render, the approval.
+      if (stampProposalSections(campaign.draft?.sections, beforeSections, { proposalId: proposal.id, label: proposal.label ?? "" })) {
+        const saved = this.storage.saveCampaignDraft({ id: campaign.id, draft: campaign.draft, expectedRevision: null, now: this.now() });
         if (!saved.ok) return saved;
         campaign = saved.campaign;
       }

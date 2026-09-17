@@ -70,6 +70,19 @@ test('real Email Campaign SQLite draft, revision conflict, and capability gap', 
     const outcome = await gadget.applyCommand({ campaignId:'cmp_autumn', command:{ kind:'state.set', path:'review_state', value:'approved' } });
     assert.equal(outcome.ok, false);
 
+    // A proposal that lands a custom_html block marks it `via: "proposal"`
+    // on accept — the review gate shows the markup was agent-staged rather
+    // than written by a direct edit.
+    const prop = await gadget.proposeChange({ campaignId:'cmp_autumn', label:'Paste the shipped email', payload:{ commands:[{ kind:'collection.add', path:'sections', item:{ id:'s_html', type:'custom_html', html:'<p>from proposal</p>' } }] } });
+    assert.equal(prop.ok, true, JSON.stringify(prop));
+    const accepted = await gadget.acceptProposal({ id: prop.proposalId });
+    assert.equal(accepted.ok, true, JSON.stringify(accepted));
+    const marked = accepted.campaign.draft.sections.find((s) => s.id === 's_html');
+    // Field-wise, not deepEqual — the RPC boundary returns a null-prototype row.
+    assert.equal(marked.origin?.via, 'proposal');
+    assert.equal(marked.origin?.proposalId, prop.proposalId);
+    assert.equal(marked.origin?.label, 'Paste the shipped email');
+
     // The door-only methods are not admitted without doors — the session gate
     // refuses them before the facet would answer a capability gap by value.
     for (const method of ['sendNow','sendTest','refreshEstimate','listSegments','searchAccounts','verifySender','scheduleSend']) {
@@ -89,7 +102,10 @@ test('real Email Campaign SQLite draft, revision conflict, and capability gap', 
     const persisted = (await (await call('getDraft',[{id:'cmp_autumn'}])).json()).value;
     assert.equal(persisted.campaign.draft.subject, 'A refreshed subject');
     assert.equal(persisted.campaign.draft.preheader, 'new preheader');
-    // saveDraft and the applyCommand each bumped the revision once.
-    assert.equal(persisted.campaign.revision, current.revision + 2);
+    // The provenance marker persists through draft_json storage.
+    assert.equal(persisted.campaign.draft.sections.find((s) => s.id === 's_html').origin.proposalId, prop.proposalId);
+    // saveDraft, applyCommand, the accepted proposal's command save and its
+    // provenance-stamp save each bumped the revision once.
+    assert.equal(persisted.campaign.revision, current.revision + 4);
   } finally { await session?.dispose(); await rm(root,{recursive:true,force:true}); }
 });

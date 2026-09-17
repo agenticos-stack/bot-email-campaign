@@ -41,12 +41,18 @@ The mutable boundary is enforced: `review_state`, `favcrm_campaign_id`,
 `estimate`, `delivery_stats`, `sender_status` and `approvals` are outcomes the
 domain service owns. No command you can send writes them.
 
-## Pasted HTML is owner-authored, sandboxed
+## Pasted HTML is verbatim, disclosed, sandboxed
 
 A `custom_html` section carries pasted markup verbatim — the same trust
 model as an ESP's code block. The canvas preview renders it only inside a
 `sandbox`ed iframe (no scripts, opaque origin), and the send path emits it
-as-is for the owner's own audience, behind the approval gate. Prefer typed
+as-is, behind the approval gate. "Whoever wrote it" is the honest framing:
+this surface can write markup too, so the review step discloses what each
+block does (link hosts + hrefs, remote image/asset hosts, hidden or
+zero-size count, size) and how it got there — blocks staged through a
+proposal carry the proposal's label; everything else reads "added by a
+direct edit". When you write one, prefer `proposeChange` so the owner sees
+your label on the gate instead of an anonymous "direct edit". Prefer typed
 sections when the content fits them — they are what the editor's move/
 remove and live preview handle best. The platform still
 appends sender identity, the legal footer and unsubscribe handling to every

@@ -508,31 +508,57 @@ const server = createServer(async (request, response) => {
        *
        * `Origin: null` is admitted for the same reason: it names no origin at
        * all — a sandboxed or srcdoc frame is opaque by design, and a genuinely
-       * cross-origin page always sends its own origin, never null. A hostile
-       * page also cannot mint this case with our token: `frame-ancestors
-       * 'self'` refuses to embed /canvas in a foreign frame, and CORS never
-       * exposes fixture.js (where the token lives) cross-origin. What still
-       * stands between the caller and the session is the same pair as always:
-       * the loopback-only bind and the `x-bot-local-session` token check,
-       * which runs after this rewrite and refuses a wrong or absent token.
+       * cross-origin page always sends its own origin, never null. An ABSENT
+       * Origin is admitted for the same reason again: a browser POST always
+       * carries Origin, so its absence means a non-browser client or tooling
+       * that strips headers — not a drive-by page (which cannot suppress its
+       * own Origin on fetch). A hostile page also cannot mint these cases
+       * with our token: `frame-ancestors 'self'` refuses to embed /canvas in
+       * a foreign frame, and CORS never exposes fixture.js (where the token
+       * lives) cross-origin. What still stands between the caller and the
+       * session is the same pair as always: the loopback-only bind and the
+       * `x-bot-local-session` token check, which runs after this rewrite and
+       * refuses a wrong or absent token.
        */
       const headers = new Headers(request.headers);
       const origin = headers.get('origin');
-      if (origin === 'null') {
+      if (origin === 'null' || !origin) {
         headers.set('origin', `http://127.0.0.1:${port}`);
-      } else if (origin) {
+      } else {
         try {
           const from = new URL(origin);
           if (from.protocol === 'http:' && from.host === headers.get('host')) headers.set('origin', `http://127.0.0.1:${port}`);
         } catch {}
       }
+      // The request body is small (LOCAL_RPC_MAX_BYTES) — read it once so the
+      // refusal log below can name the method, then hand the bytes on.
+      let rawBody = null;
+      if (!['GET','HEAD'].includes(request.method)) {
+        const chunks = [];
+        for await (const b of request) chunks.push(b);
+        rawBody = Buffer.concat(chunks).toString('utf8');
+      }
+      let rpcMethod = null;
+      try { rpcMethod = rawBody ? JSON.parse(rawBody)?.method ?? null : null; } catch {}
       const result = await runtime.handle(new Request('http://127.0.0.1/local-rpc', {
         method: request.method, headers,
-        ...(!['GET','HEAD'].includes(request.method) ? {body: Readable.toWeb(request), duplex: 'half'} : {})
+        ...(rawBody !== null ? {body: rawBody, duplex: 'half'} : {})
       }));
+      const resultText = await result.text();
+      // Refusals are invisible in a network panel — they arrive as 200 or as
+      // the admission 403 — so name the caller here: which method, from what
+      // origin, and whether the session token matched. This is the evidence
+      // the console cannot show.
+      let refused = !result.ok;
+      let refusalError = null;
+      try { const parsed = JSON.parse(resultText); if (parsed && parsed.ok === false) { refused = true; refusalError = parsed.error; } else if (!result.ok) refusalError = parsed?.error ?? null; } catch {}
+      if (refused) {
+        const tokenGiven = headers.get('x-bot-local-session');
+        console.warn(`[local-rpc refused] method=${rpcMethod ?? '(unparsed)'} status=${result.status} error=${JSON.stringify(refusalError)} origin=${origin} host=${headers.get('host')} referer=${headers.get('referer')} token=${tokenGiven === runtime.token ? 'match' : tokenGiven ? 'MISMATCH' : 'absent'}`);
+      }
       response.writeHead(result.status, Object.fromEntries(result.headers));
-      response.end(await result.text());
-    } catch { response.writeHead(500, {'Content-Type':'application/json'}).end('{"error":"local_transport_failed"}'); }
+      response.end(resultText);
+    } catch (err) { console.warn('[local-rpc transport]', err); response.writeHead(500, {'Content-Type':'application/json'}).end('{"error":"local_transport_failed"}'); }
     return;
   }
   response.setHeader("Content-Security-Policy", `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; font-src data:; img-src blob: data:; frame-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors ${url.pathname === '/canvas' ? "'self'" : "'none'"}`);

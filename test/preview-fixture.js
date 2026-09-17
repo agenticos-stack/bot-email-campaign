@@ -9,10 +9,18 @@ const params = new URL(location.href).searchParams;
 const withCaps = (key) => !["0", "off", "refused"].includes(params.get(key));
 
 const seg = { segment_id: "seg_active", label: "Active members" };
+// `?html=1` adds a pasted-HTML block with a remote pixel, a link and a hidden
+// block — enough for the review gate's facts card to list real facts.
+const HTML_BLOCK = {
+  id: "s_html",
+  type: "custom_html",
+  html: `<table width="600"><tr><td><a href="https://shop.example.com/offer?src=mail">Members save 15%</a><img src="https://px.tracker.example.net/o.gif" width="1" height="1"><div style="display:none">preheader trick</div></td></tr></table>`
+};
 const seedSections = () => [
   { id: "s_1", type: "heading", heading: "A little more room for what you love." },
   { id: "s_2", type: "body", body: "Hello there,\n\nA new season is a good reason to make time for yourself. Our September workshops are now open." },
-  { id: "s_3", type: "cta", cta_label: "Explore September workshops", cta_url: "https://example.com/workshops" }
+  { id: "s_3", type: "cta", cta_label: "Explore September workshops", cta_url: "https://example.com/workshops" },
+  ...(params.get("html") === "1" ? [HTML_BLOCK] : [])
 ];
 
 let revision = 12;
@@ -130,9 +138,30 @@ globalThis.gadget = {
   async applyCommand(input = {}) { const c = campaigns.find((x) => x.id === input.campaignId); if (!c) return { ok: false, code: "not_found", message: "No such campaign draft." }; if (input.expectedRevision != null && input.expectedRevision !== c.revision) return { ok: false, code: "revision_conflict", message: "A newer fixture revision exists." }; const cmd = input.command ?? {}; if (cmd.kind === "state.set" && typeof cmd.path === "string") c.draft[cmd.path] = cmd.value; c.revision += 1; return { ok: true, campaign: JSON.parse(JSON.stringify(c)), revision: c.revision }; },
   async selectCampaign() { return { ok: true }; },
   async deleteCampaign(input = {}) { const i = campaigns.findIndex((x) => x.id === input.id); if (i >= 0) campaigns.splice(i, 1); return { ok: true }; },
-  async listProposals() { return { ok: true, proposals: params.get("proposal") === "1" ? [{ id: "pp_1", campaignId: campaign.id, kind: "draft", payload: { commands: [] }, label: "A clearer subject line for this audience.", baseRevision: campaign.revision, state: "pending", createdAt: "" }] : [] }; },
+  // `?proposal=1` stages a copy tweak; `?proposal=html` stages a pasted-HTML
+  // block so the accept dialog shows the markup's facts, not a mystery batch.
+  async listProposals() {
+    const mode = params.get("proposal");
+    if (!mode) return { ok: true, proposals: [] };
+    const payload = mode === "html"
+      ? { commands: [{ kind: "collection.add", path: "sections", item: { ...HTML_BLOCK, id: "s_prop" } }] }
+      : { commands: [{ kind: "state.set", path: "subject", value: "A clearer subject line" }] };
+    return { ok: true, proposals: [{ id: "pp_1", campaignId: campaign.id, kind: "draft", payload, label: mode === "html" ? "Add the designer's exported footer block" : "A clearer subject line for this audience.", baseRevision: campaign.revision, state: "pending", createdAt: "" }] };
+  },
   async proposeChange() { return { ok: true, proposalId: "pp_1" }; },
-  async acceptProposal() { return { ok: true, campaign: JSON.parse(JSON.stringify(campaign)) }; },
+  // Accept applies the staged commands and stamps the block `via: proposal` —
+  // the same provenance the facet sets, so the review card can name it.
+  async acceptProposal() {
+    const mode = params.get("proposal");
+    const commands = mode === "html" ? [{ kind: "collection.add", path: "sections", item: { ...HTML_BLOCK, id: "s_prop" } }] : mode === "1" ? [{ kind: "state.set", path: "subject", value: "A clearer subject line" }] : [];
+    for (const cmd of commands) {
+      if (cmd.kind === "collection.add" && cmd.path === "sections") {
+        campaign.draft.sections.push({ ...cmd.item, origin: { via: "proposal", proposalId: "pp_1", label: "Add the designer's exported footer block" } });
+      } else if (cmd.kind === "state.set") campaign.draft[cmd.path] = cmd.value;
+    }
+    campaign.revision += 1;
+    return { ok: true, campaign: JSON.parse(JSON.stringify(campaign)) };
+  },
   async rejectProposal() { return { ok: true }; },
   // `?sender=refused` answers the refusal shape a door-less facet returns —
   // the strip must show "could not check", not "no verified sender".
