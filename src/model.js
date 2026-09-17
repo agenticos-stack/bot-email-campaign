@@ -10,6 +10,9 @@
 // one draft both sides agree on: the facet's `campaigns` table row and the
 // `state_json` mirror the bridge writes before a governed action.
 
+// The flat archive ships raw .js members only, so this file cannot import
+// `../definition.ts` — these constants are pinned to the definition's declared
+// values by `test/unit/definition-parity.test.ts`, which fails on drift.
 export const SECTION_TYPES = Object.freeze(["heading", "body", "cta", "image"]);
 
 /** What `state_json`'s `mutable` allowlist permits — mirrored, never re-derived. */
@@ -220,7 +223,8 @@ export function missingForSend(draft) {
 // one exists — covered in test/unit/model.test.ts.
 // ---------------------------------------------------------------------------
 
-/** The review states in which the draft's mutable surface is open. */
+/** The review states in which the draft's mutable surface is open — the
+ *  definition's `mutableWhen.in`, pinned by `test/unit/definition-parity.test.ts`. */
 export const OPEN_REVIEW_STATES = Object.freeze(["drafting", "in_review", "approved"]);
 
 /** Whether a lifecycle value has closed the mutable surface (mutableWhen). */

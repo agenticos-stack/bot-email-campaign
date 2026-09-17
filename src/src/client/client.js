@@ -296,17 +296,21 @@ function App() {
   // --- init -------------------------------------------------------------------
   (async function init() {
     try {
+      // Each loader stores a refusal's message in its own state field; the
+      // views render what the facet said. Boot must not console.error an
+      // expected refusal — a refused read is a fact about capability, not a
+      // code defect.
       await loadCapabilities(rpc);
       await loadSender(rpc);
       if (capOkAny("favcrm_connector")) {
-        const seg = await rpc.listSegments();
+        const seg = await rpc.listSegments().catch(() => null);
         if (seg?.ok) S.segments = seg.segments ?? [];
       }
       await loadCampaigns(rpc);
       await establishLiveUpdates();
     } catch (error) {
-      console.error(error);
-      S.loadError = t("Campaigns could not be loaded", "無法載入活動");
+      // Only an unexpected failure reaches here — still shown, still real.
+      S.loadError = error?.message || t("Campaigns could not be loaded", "無法載入活動");
     }
     S.loading = false;
     render();

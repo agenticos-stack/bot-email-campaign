@@ -6,7 +6,7 @@
 globalThis.RpcTarget = class {};
 
 const params = new URL(location.href).searchParams;
-const withCaps = (key) => params.get(key) !== "0" && params.get(key) !== "off";
+const withCaps = (key) => !["0", "off", "refused"].includes(params.get(key));
 
 const seg = { segment_id: "seg_active", label: "Active members" };
 const seedSections = () => [
@@ -89,7 +89,9 @@ globalThis.gadget = {
       workspace: { granted: withCaps("workspace"), interim: false }
     };
   },
-  async getCapabilities() { return { ok: true, capabilities: this._caps(), grants: {} }; },
+  // `?caps=refused` makes the capability read itself fail — the setup view and
+  // review checklist must say "could not check", not "not granted".
+  async getCapabilities() { return params.get("caps") === "refused" ? { ok: false, code: "capability_unavailable", message: "Fixture refusal — capabilities could not be read." } : { ok: true, capabilities: this._caps(), grants: {} }; },
   async refreshGrants() { return this.getCapabilities(); },
   async setConfig() { return { ok: true, config: {} }; },
   async listCampaigns() {
@@ -132,7 +134,9 @@ globalThis.gadget = {
   async proposeChange() { return { ok: true, proposalId: "pp_1" }; },
   async acceptProposal() { return { ok: true, campaign: JSON.parse(JSON.stringify(campaign)) }; },
   async rejectProposal() { return { ok: true }; },
-  async getSenderStatus() { return { ok: true, sender: withCaps("sender") ? { connected: true, provider: "resend", from_email: "hello@northstar.example", from_name: "Northstar Studio" } : null }; },
+  // `?sender=refused` answers the refusal shape a door-less facet returns —
+  // the strip must show "could not check", not "no verified sender".
+  async getSenderStatus() { return params.get("sender") === "refused" ? { ok: false, code: "capability_unavailable", door: "email_sender", message: "Fixture refusal — the email_sender capability is not granted to this gadget." } : { ok: true, sender: withCaps("sender") ? { connected: true, provider: "resend", from_email: "hello@northstar.example", from_name: "Northstar Studio" } : null }; },
   async listSegments() { return { ok: true, segments: [{ segment_id: "seg_active", label: "Active members" }, { segment_id: "seg_return", label: "Returning customers" }, { segment_id: "seg_fresh", label: "New this month" }] }; },
   async searchAccounts(input = {}) {
     const q = (input.query ?? "").toLowerCase();

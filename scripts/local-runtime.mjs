@@ -93,7 +93,7 @@ export async function createEmailRuntime({ files, sdkSource, origins, stateDirec
   const browsing = ['summary','getCapabilities','refreshGrants','setConfig','listCampaigns','getCampaign','getDraft','getReview','exportDraft','previewHtml','createCampaign','applyCommand','saveDraft','selectCampaign','deleteCampaign','listProposals','proposeChange','acceptProposal','rejectProposal','getSenderStatus','getSchedules','subscribe'];
   const needsDoors = ['listSegments','searchAccounts','refreshEstimate','sendTest','sendNow','scheduleSend','undoSend','refreshCampaignStatus','verifySender'];
   const connectedDoors = doors ?? undefined;
-  if (seedFixtures) console.warn('Email Campaign fixture runtime seeds one synthetic draft. No connector, sender or send is live.');
+  if (seedFixtures) console.warn('Email Campaign fixture runtime seeds synthetic lifecycle drafts. No connector, sender or send is live.');
   return createLocalSession({ modules, origins, stateDirectory, doors: connectedDoors,
     maxRequestBytes: LOCAL_RPC_MAX_BYTES,
     seed: seedFixtures ? [{method:'seedLocal',args:[]}] : [],

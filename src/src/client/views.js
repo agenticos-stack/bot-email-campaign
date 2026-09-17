@@ -136,6 +136,10 @@ function pageHead({ title, badgeHtml = "", sub = "", meta = "", actions = "" }) 
 
 /** Sender strip — the mockup's quiet readiness line under the head. */
 function senderStrip() {
+  if (S.senderError) {
+    // A refused read is shown as itself — "could not check", never "not set".
+    return `<div class="strip"><span class="strip-icon warn">${icon("alert")}</span><span class="strip-text">${esc(t(`The sender could not be checked — ${S.senderError}`, `無法檢查寄件者——${S.senderError}`))}</span>${button("sender", t("Set up sender", "設定寄件者"), { kind: "secondary", key: "strip-sender" })}</div>`;
+  }
   if (S.sender?.connected && S.sender?.from_email) {
     return strip("mail", esc(t(`Sending as ${S.sender.from_email}`, `寄件者 ${S.sender.from_email} 已驗證`)),
       button("sender", t("Manage", "管理"), { kind: "quiet", key: "strip-sender" }));
@@ -502,10 +506,18 @@ function reviewStep() {
   const stale = estimateStale();
   const miss = missing();
   const isScheduled = Boolean(d.scheduled_for);
+  // Refused capability reads say "could not check" with the facet's reason —
+  // never "not connected"/"not set", which are findings only an ok read may make.
+  const capsUnknown = Boolean(S.capabilitiesError);
+  const senderUnknown = Boolean(S.senderError);
   const blocking = [
     { ok: !miss.length, title: t("Subject and content set", "主旨及內容已填寫"), fix: t("Go to content", "前往內容"), action: "step", value: "1" },
-    { ok: capOk("favcrm_connector"), title: t("FavCRM is connected", "已連接 FavCRM"), why: t("Audience, estimates and delivery go through it.", "受眾、預估及發送都經由連接器。"), fix: t("Connect", "連接"), action: "grant-favcrm" },
-    { ok: capOk("email_sender") && Boolean(S.sender?.from_email), title: t("A verified sender is set", "已設定已驗證的寄件者"), why: t("Set the sending domain and address in sender setup.", "請在寄件者頁設定寄件網域及地址。"), fix: t("Go to sender setup", "前往寄件者設定"), action: "sender" },
+    { ok: capOk("favcrm_connector"), title: t("FavCRM is connected", "已連接 FavCRM"),
+      why: capsUnknown ? t(`Could not check — ${S.capabilitiesError}`, `無法檢查——${S.capabilitiesError}`) : t("Audience, estimates and delivery go through it.", "受眾、預估及發送都經由連接器。"),
+      fix: capsUnknown ? "" : t("Connect", "連接"), action: "grant-favcrm" },
+    { ok: capOk("email_sender") && Boolean(S.sender?.from_email), title: t("A verified sender is set", "已設定已驗證的寄件者"),
+      why: senderUnknown ? t(`Could not check — ${S.senderError}`, `無法檢查——${S.senderError}`) : capsUnknown ? t(`Could not check — ${S.capabilitiesError}`, `無法檢查——${S.capabilitiesError}`) : t("Set the sending domain and address in sender setup.", "請在寄件者頁設定寄件網域及地址。"),
+      fix: senderUnknown || capsUnknown ? "" : t("Go to sender setup", "前往寄件者設定"), action: "sender" },
     { ok: !capOk("favcrm_connector") || !stale, title: t("Audience estimate is current", "客群預估為最新"), why: t("The audience changed after the last estimate.", "受眾在預估後有更改。"), fix: t("Back to audience to recalculate", "回到受眾重新預估"), action: "step", value: "0" },
     { ok: !(e && !stale) || (e.eligible ?? 0) > 0, title: t("At least one eligible recipient", "至少一名合資格收件人"), why: t("Everyone is currently excluded, unsubscribed or has not consented.", "目前所有人均被排除、已退訂或未同意。"), fix: t("Back to audience to adjust", "回到受眾放寬條件"), action: "step", value: "0" }
   ];
@@ -528,7 +540,7 @@ function reviewStep() {
           ${dlRow(t("Exclusions", "排除名單"), number(d.audience_exclusions.length))}
           ${dlRow(t("Subject", "主旨"), esc(d.subject || "—"))}
           ${dlRow(t("Content blocks", "內容區塊"), number(d.sections.length))}
-          ${dlRow(t("Email sender", "電郵寄件者"), capOk("email_sender") && S.sender?.from_email ? esc(S.sender.from_email) : `<span class="danger-text">${t("Not set", "尚未設定")}</span>`)}
+          ${dlRow(t("Email sender", "電郵寄件者"), capOk("email_sender") && S.sender?.from_email ? esc(S.sender.from_email) : senderUnknown ? `<span class="danger-text">${esc(t(`Could not check — ${S.senderError}`, `無法檢查——${S.senderError}`))}</span>` : `<span class="danger-text">${t("Not set", "尚未設定")}</span>`)}
         </dl></div>
       </section>
 
@@ -634,6 +646,7 @@ function setupView() {
     title: t("Set up Email Campaigns", "設定電郵活動"),
     sub: t("These capabilities connect this bot to your workspace. You can grant them now or later — drafting works either way; only sending waits on them.", "連接這些功能即可使用此機械人。您可以現在或稍後授權——草擬不受影響，只有傳送需要授權。")
   })}
+  ${S.capabilitiesError ? `<div class="strip"><span class="strip-icon warn">${icon("alert")}</span><span class="strip-text">${esc(t(`Capabilities could not be checked — ${S.capabilitiesError}`, `無法檢查功能授權——${S.capabilitiesError}`))}</span></div>` : ""}
   <section class="card"><div class="card-body"><div class="checks">
     ${row("favcrm_connector", "users", t("FavCRM connector", "FavCRM 連接"), t("Reads segments and customers, and hands delivery to FavCRM's queue — consent and unsubscribe stay with it.", "讀取客戶群組及客戶資料，並交由 FavCRM 佇列傳送——同意狀態及取消訂閱均由其管理。"), "grant-favcrm", t("Connect FavCRM", "連接 FavCRM"))}
     ${row("email_sender", "mail", t("Sender identity", "寄件者身分"), t("The verified address campaigns are sent from, via your email provider.", "活動使用的已驗證寄件地址，經您的電郵服務商發出。"), "sender", t("Set up sender", "設定寄件者"))}

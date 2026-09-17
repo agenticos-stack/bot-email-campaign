@@ -30,6 +30,8 @@ export const S = {
   readOnly: false,
   loading: true,
   loadError: "",
+  capabilitiesError: "", // refusal message when the capability read itself fails
+  senderError: "", // refusal message when the sender read itself fails
   customerQuery: "",
   exclusionQuery: "",
   customerResults: [],
@@ -182,14 +184,37 @@ export function sourceLabel(edit) {
 
 /** Read the capability snapshot — the door strip's source. */
 export async function loadCapabilities(rpc) {
-  const res = await rpc.getCapabilities();
-  if (res?.ok) S.capabilities = res.capabilities ?? {};
+  let res;
+  try {
+    res = await rpc.getCapabilities();
+  } catch (error) {
+    // A refusal thrown by the local bridge is a fact to render, not a bug to
+    // log: the capability strip says it could not be checked, with the reason.
+    S.capabilitiesError = error?.message || t("Capabilities could not be read", "無法讀取功能授權");
+    return { ok: false };
+  }
+  if (res?.ok) {
+    S.capabilities = res.capabilities ?? {};
+    S.capabilitiesError = "";
+  } else {
+    S.capabilitiesError = res?.message || t("Capabilities could not be read", "無法讀取功能授權");
+  }
   return res;
 }
 
 export async function loadSender(rpc) {
-  const res = await rpc.getSenderStatus();
+  let res;
+  try {
+    res = await rpc.getSenderStatus();
+  } catch (error) {
+    S.sender = null;
+    S.senderError = error?.message || t("The sender could not be checked", "無法檢查寄件者");
+    return { ok: false };
+  }
+  // A refusal is not a finding: only an ok read may clear the sender, and a
+  // refused read keeps its message so the strip can show what the facet said.
   S.sender = res?.ok ? res.sender ?? null : null;
+  S.senderError = res?.ok ? "" : res?.message || t("The sender could not be checked", "無法檢查寄件者");
   return res;
 }
 

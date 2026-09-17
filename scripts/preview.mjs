@@ -505,10 +505,22 @@ const server = createServer(async (request, response) => {
        * page always reports an Origin host different from the target's).
        * Normalize that case to the loopback origin the session admitted; the
        * `x-bot-local-session` token check is unchanged either way.
+       *
+       * `Origin: null` is admitted for the same reason: it names no origin at
+       * all — a sandboxed or srcdoc frame is opaque by design, and a genuinely
+       * cross-origin page always sends its own origin, never null. A hostile
+       * page also cannot mint this case with our token: `frame-ancestors
+       * 'self'` refuses to embed /canvas in a foreign frame, and CORS never
+       * exposes fixture.js (where the token lives) cross-origin. What still
+       * stands between the caller and the session is the same pair as always:
+       * the loopback-only bind and the `x-bot-local-session` token check,
+       * which runs after this rewrite and refuses a wrong or absent token.
        */
       const headers = new Headers(request.headers);
       const origin = headers.get('origin');
-      if (origin) {
+      if (origin === 'null') {
+        headers.set('origin', `http://127.0.0.1:${port}`);
+      } else if (origin) {
         try {
           const from = new URL(origin);
           if (from.protocol === 'http:' && from.host === headers.get('host')) headers.set('origin', `http://127.0.0.1:${port}`);
