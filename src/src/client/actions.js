@@ -7,7 +7,9 @@
 // the same rpc and re-render the way every preview handler did.
 
 import { newId, normalizeDraft } from "../../model.js";
-import { $, announce, closeDialog } from "./dom.js";
+import { $ } from "@agenticos-dev/bot-shell/client/dom.js";
+import { closeDialog } from "@agenticos-dev/bot-shell/client/drawer.js";
+import { announce } from "@agenticos-dev/bot-shell/client/toast.js";
 import { getLocale, setLocale, t } from "./i18n.js";
 import {
   S,
