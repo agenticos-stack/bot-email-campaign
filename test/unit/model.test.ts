@@ -1,0 +1,277 @@
+// Node unit tests for the pure Email Campaign model. No network, no D1, no
+// facet — model.js has no I/O beyond the platform crypto API and the clock the
+// caller passes in. These pin the draft both the facet's `campaigns` row and
+// the `state_json` mirror agree on, plus the custom_html sanitize contract.
+import { describe, expect, it } from "vitest";
+import {
+  MUTABLE_PATHS,
+  OUTCOME_PATHS,
+  SECTION_TYPES,
+  applyCommandToDraft,
+  audienceKey,
+  customHtmlSendable,
+  draftFingerprint,
+  draftToState,
+  missingForSend,
+  normalizeDraft,
+  normalizeSection,
+  normalizeSections,
+  sanitizeCustomHtml,
+  sectionsToHtml
+} from "../../src/model.js";
+
+describe("normalizeSection", () => {
+  it("keeps each declared type and drops an unknown one", () => {
+    for (const type of ["heading", "body", "cta", "image", "custom_html"]) {
+      expect(normalizeSection({ type })?.type).toBe(type);
+    }
+    expect(SECTION_TYPES).toContain("custom_html");
+    expect(normalizeSection({ type: "banner" })).toBeNull();
+    expect(normalizeSection({ type: "script" })).toBeNull();
+    expect(normalizeSection(null)).toBeNull();
+  });
+
+  it("assigns a stable id when none is given", () => {
+    const a = normalizeSection({ type: "heading", heading: "Hi" });
+    expect(a?.id).toMatch(/^s_[0-9a-f]+$/);
+  });
+
+  it("carries only the fields its type owns", () => {
+    const cta = normalizeSection({ type: "cta", cta_label: "Go", cta_url: "https://x.test", heading: "stray" });
+    expect(cta).toMatchObject({ cta_label: "Go", cta_url: "https://x.test" });
+    expect(cta).not.toHaveProperty("heading");
+    expect(cta).not.toHaveProperty("html");
+  });
+
+  it("refuses a non-http(s) cta or image url — a stored javascript: is an injection", () => {
+    expect(normalizeSection({ type: "cta", cta_label: "x", cta_url: "javascript:alert(1)" })?.cta_url).toBe("");
+    expect(normalizeSection({ type: "image", image_url: "data:text/html;base64,AA==" })?.image_url).toBe("");
+    expect(normalizeSection({ type: "image", image_url: "https://cdn.test/a.png" })?.image_url).toBe(
+      "https://cdn.test/a.png"
+    );
+  });
+});
+
+describe("normalizeSections", () => {
+  it("drops invalid rows and caps at the section limit", () => {
+    const rows = normalizeSections([
+      { type: "heading", heading: "A" },
+      { type: "nope" },
+      { type: "body", body: "B" }
+    ]);
+    expect(rows.map((s) => s.type)).toEqual(["heading", "body"]);
+    const many = normalizeSections(Array.from({ length: 60 }, () => ({ type: "body", body: "x" })));
+    expect(many.length).toBe(40);
+  });
+});
+
+describe("sanitizeCustomHtml — the send-time boundary", () => {
+  it("removes scripts and forms", () => {
+    const dirty = `<div>Hi</div><script>alert(1)</script><form action="/x"><input></form><p>Bye</p>`;
+    const out = sanitizeCustomHtml(dirty);
+    expect(out).not.toMatch(/<script/i);
+    expect(out).not.toMatch(/<form/i);
+    expect(out).toContain("Hi");
+    expect(out).toContain("Bye");
+  });
+
+  it("strips inline event handlers", () => {
+    const out = sanitizeCustomHtml(`<a href="https://x.test" onclick="steal()" onmouseover='x()'>link</a><img src="https://x.test/a.png" onerror=bad()>`);
+    expect(out).not.toMatch(/on\w+\s*=/i);
+    expect(out).toContain('href="https://x.test"');
+  });
+
+  it("removes javascript: URLs from href/src/action", () => {
+    const out = sanitizeCustomHtml(`<a href="javascript:alert(1)">x</a><a href=' javascript:alert(2)'>y</a>`);
+    expect(out).not.toMatch(/javascript:/i);
+  });
+
+  it("drops non-image data: URLs but keeps image data:", () => {
+    const out = sanitizeCustomHtml(`<a href="data:text/html;base64,PHNjcmlwdD4=">x</a>`);
+    expect(out).not.toMatch(/data:text\/html/i);
+  });
+
+  it("removes 1x1 and 0-size tracking pixels but keeps a real image", () => {
+    const out = sanitizeCustomHtml(
+      `<img src="https://t.test/px" width="1" height="1"><img src="https://t.test/beacon" width="0"><img src="https://cdn.test/hero.png" width="600" height="200">`
+    );
+    expect(out).not.toContain("px");
+    expect(out).not.toContain("beacon");
+    expect(out).toContain("hero.png");
+  });
+
+  it("keeps a <style> block but strips IE-era script sinks", () => {
+    const out = sanitizeCustomHtml(`<style>.a{color:red}</style><div style="width:expression(alert(1))">x</div>`);
+    expect(out).toContain(".a{color:red}");
+    expect(out).not.toMatch(/expression\s*\(/i);
+  });
+
+  it("is idempotent — re-running a clean output changes nothing", () => {
+    const once = sanitizeCustomHtml(`<div onclick="x()"><script>bad()</script>Safe</div>`);
+    expect(sanitizeCustomHtml(once)).toBe(once);
+  });
+});
+
+describe("customHtmlSendable", () => {
+  it("is true when markup survives with text", () => {
+    expect(customHtmlSendable(`<table><tr><td>Hello member</td></tr></table>`)).toBe(true);
+  });
+  it("is false when sanitization leaves only a shell", () => {
+    // A lone tracking pixel is removed wholesale — nothing sendable remains.
+    expect(customHtmlSendable(`<img src="https://t.test/px" width="1" height="1">`)).toBe(false);
+    // A form whose only content is a hidden control sanitizes to no body text.
+    expect(customHtmlSendable(`<form action="/x"><input type="hidden" name="t"></form>`)).toBe(false);
+  });
+});
+
+describe("normalizeDraft", () => {
+  it("defaults the audience to all customers and keeps references, never rows", () => {
+    const d = normalizeDraft({});
+    expect(d.audience_source).toBe("all");
+    expect(d.audience_segment).toEqual([]);
+    expect(d.audience_accounts).toEqual([]);
+  });
+
+  it("carries a segment only when the source is segment", () => {
+    const seg = { segment_id: "seg_1", label: "Active" };
+    expect(normalizeDraft({ audience_source: "segment", audience_segment: [seg] }).audience_segment).toEqual([seg]);
+    // A segment pasted while the source is "all" is dropped, not silently kept.
+    expect(normalizeDraft({ audience_source: "all", audience_segment: [seg] }).audience_segment).toEqual([]);
+  });
+
+  it("dedupes accounts by id and refuses a malformed email", () => {
+    const d = normalizeDraft({
+      audience_source: "individual",
+      audience_accounts: [
+        { account_id: "a1", name: "Ada", email: "ada@test.hk" },
+        { account_id: "a1", name: "Dupe", email: "dupe@test.hk" },
+        { account_id: "a2", name: "Bad", email: "not-an-email" }
+      ]
+    });
+    expect(d.audience_accounts.length).toBe(2);
+    expect(d.audience_accounts.find((a) => a.account_id === "a2")?.email).toBe("");
+  });
+
+  it("keeps an ISO scheduled_for and clears a malformed one", () => {
+    expect(normalizeDraft({ scheduled_for: "2026-09-20T09:00" }).scheduled_for).toBe("2026-09-20T09:00");
+    expect(normalizeDraft({ scheduled_for: "next tuesday" }).scheduled_for).toBe("");
+  });
+});
+
+describe("audienceKey / draftFingerprint", () => {
+  const base = normalizeDraft({
+    audience_source: "segment",
+    audience_segment: [{ segment_id: "seg_1", label: "Active" }],
+    subject: "Hello"
+  });
+
+  it("audienceKey changes when the audience changes, not when content does", () => {
+    const contentChanged = normalizeDraft({ ...base, subject: "Different subject", preheader: "new" });
+    expect(audienceKey(contentChanged)).toBe(audienceKey(base));
+    const audienceChanged = normalizeDraft({ ...base, audience_source: "all" });
+    expect(audienceKey(audienceChanged)).not.toBe(audienceKey(base));
+  });
+
+  it("draftFingerprint changes on any content edit — approval binds the exact draft", () => {
+    const edited = normalizeDraft({ ...base, subject: "Edited" });
+    expect(draftFingerprint(edited)).not.toBe(draftFingerprint(base));
+  });
+});
+
+describe("missingForSend", () => {
+  it("needs a subject and at least one section", () => {
+    expect(missingForSend(normalizeDraft({}))).toEqual(["subject", "sections"]);
+    expect(missingForSend(normalizeDraft({ subject: "Hi", sections: [{ type: "body", body: "x" }] }))).toEqual([]);
+    expect(missingForSend(normalizeDraft({ subject: "Hi" }))).toEqual(["sections"]);
+  });
+});
+
+describe("applyCommandToDraft — the mutable allowlist", () => {
+  const draft = normalizeDraft({ subject: "Original", audience_source: "all" });
+
+  it("writes a mutable field with state.set", () => {
+    const r = applyCommandToDraft(draft, { kind: "state.set", path: "subject", value: "New subject" });
+    expect(r.ok).toBe(true);
+    expect(r.draft?.subject).toBe("New subject");
+  });
+
+  it("refuses to write an outcome-owned field", () => {
+    for (const path of ["review_state", "estimate", "delivery_stats", "favcrm_campaign_id"]) {
+      const r = applyCommandToDraft(draft, { kind: "state.set", path, value: "x" });
+      expect(r.ok, path).toBe(false);
+      expect(r.issues?.[0].code).toBe("not_mutable");
+    }
+    expect(OUTCOME_PATHS).toContain("review_state");
+  });
+
+  it("refuses a field outside the allowlist entirely", () => {
+    const r = applyCommandToDraft(draft, { kind: "state.set", path: "internal_notes", value: "x" });
+    expect(r.ok).toBe(false);
+    expect(r.issues?.[0].code).toBe("not_mutable");
+  });
+
+  it("collection.add appends a normalized section", () => {
+    const r = applyCommandToDraft(draft, {
+      kind: "collection.add",
+      path: "sections",
+      item: { type: "cta", cta_label: "Go", cta_url: "https://x.test" }
+    });
+    expect(r.ok).toBe(true);
+    expect(r.draft?.sections.at(-1)).toMatchObject({ type: "cta", cta_label: "Go" });
+  });
+
+  it("collection.update patches a row by id", () => {
+    const seeded = normalizeDraft({ sections: [{ type: "heading", heading: "Old", id: "s_fix" }] });
+    const r = applyCommandToDraft(seeded, {
+      kind: "collection.update",
+      path: "sections",
+      itemId: "s_fix",
+      value: { heading: "Renamed" }
+    });
+    expect(r.ok).toBe(true);
+    expect(r.draft?.sections[0].heading).toBe("Renamed");
+  });
+
+  it("collection.remove drops a row by id", () => {
+    const seeded = normalizeDraft({
+      audience_source: "individual",
+      audience_accounts: [{ account_id: "a1" }, { account_id: "a2" }]
+    });
+    const r = applyCommandToDraft(seeded, { kind: "collection.remove", path: "audience_accounts", itemId: "a1" });
+    expect(r.draft?.audience_accounts.map((a) => a.account_id)).toEqual(["a2"]);
+  });
+
+  it("a stale expectedRevision is a revision_conflict value, not an exception", () => {
+    const r = applyCommandToDraft(draft, { kind: "state.set", path: "subject", value: "x" }, { expectedRevision: 1, revision: 3 });
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe("revision_conflict");
+  });
+
+  it("a command kind the draft surface does not own is unsupported", () => {
+    const r = applyCommandToDraft(draft, { kind: "selection.set", value: {} });
+    expect(r.ok).toBe(false);
+    expect(r.issues?.[0].code).toBe("unsupported_command");
+  });
+});
+
+describe("draftToState / sectionsToHtml", () => {
+  it("emits only the mutable fields state_json carries — never outcome rows", () => {
+    const state = draftToState(normalizeDraft({ subject: "S", sections: [{ type: "body", body: "b" }] }));
+    expect(state).toHaveProperty("subject", "S");
+    expect(state).toHaveProperty("sections");
+    expect(state).not.toHaveProperty("review_state");
+    expect(state).not.toHaveProperty("estimate");
+  });
+
+  it("renders sections to HTML and sanitizes a custom_html block inline", () => {
+    const html = sectionsToHtml([
+      { type: "heading", heading: "Title" },
+      { type: "body", body: "Line one\nLine two" },
+      { type: "custom_html", html: `<div onclick="x()">Pasted</div><script>bad()</script>` }
+    ]);
+    expect(html).toContain("<h1>Title</h1>");
+    expect(html).toContain("Line one<br>Line two");
+    expect(html).toContain("Pasted");
+    expect(html).not.toMatch(/onclick|<script/i);
+  });
+});
