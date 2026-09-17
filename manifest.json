@@ -1,0 +1,28 @@
+{
+  "blueprintKey": "email_campaign",
+  "legacyBlueprintId": "email.campaign",
+  "artifact": "email-campaign.gadget",
+  "metadata": {
+    "title": "Email Campaign",
+    "description": "Compose governed bulk-email campaigns — audience references and typed sections — for owner-approved delivery through FavCRM's queue.",
+    "author": {
+      "type": "user",
+      "name": "AgenticOS Platform",
+      "id": "platform@agenticos.hk"
+    },
+    "version": 1
+  },
+  "storageSchemaVersion": 1,
+  "files": [
+    "client.js",
+    "server.js",
+    "storage.js",
+    "config.js",
+    "doors.js",
+    "grant-request.js",
+    "model.js",
+    "agent.md",
+    "README.md",
+    "manifest.json"
+  ]
+}

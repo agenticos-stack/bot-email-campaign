@@ -1,0 +1,7 @@
+dist/
+node_modules/
+.bot-local/
+*.tgz
+src/client.js
+.vitest/
+captures/
