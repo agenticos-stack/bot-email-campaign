@@ -715,7 +715,7 @@ export function openSender() {
     t("Set up sender", "設定寄件者"),
     t("Verification happens with the provider — the gadget stores the outcome, not credentials.", "驗證在服務商一方完成，小工具只保存結果，不保存憑證。"),
     `${field("sender-name", t("From name", "寄件者名稱"), S.sender?.from_name ?? "", { placeholder: t("Essential Foods HK", "九龍工作室會員組") })}
-     ${field("sender-from", t("From address", "寄件地址"), S.sender?.from_email ?? "", { type: "email", placeholder: "hello@studio.hk" })}
+     ${field("sender-from", t("From address", "寄件地址"), S.sender?.from_email ?? "", { type: "email", placeholder: "hello@example.com" })}
      <div class="field"><label class="field-label" for="provider">${t("Provider", "服務供應商")}</label><select id="provider" class="select-control" data-field="provider" data-key="provider">${[["resend", "Resend"], ["ses", "Amazon SES"], ["smtp", "SMTP"]].map(([v, l]) => `<option value="${v}"${S.provider === v ? " selected" : ""}>${l}</option>`).join("")}</select></div>`,
     `${button("close-dialog", t("Cancel", "取消"), { kind: "quiet", key: "sender-cancel" })}${button("connect-sender", t("Verify & save", "驗證並儲存"), { kind: "primary", ic: "check", key: "sender-ok" })}`
   );
