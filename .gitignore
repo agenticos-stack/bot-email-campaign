@@ -4,3 +4,4 @@ node_modules/
 *.tgz
 src/client.js
 .vitest/
+captures/
