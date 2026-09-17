@@ -19,11 +19,26 @@ import {
 } from "../../grant-request.js";
 import { normalizeDraft } from "../../model.js";
 import { createActions } from "./actions.js";
-import { $, announce, closeDialog, preserveRender } from "./dom.js";
+import { $, preserveRender } from "@agenticos-dev/bot-shell/client/dom.js";
+import { closeDialog } from "@agenticos-dev/bot-shell/client/drawer.js";
+import { announce } from "@agenticos-dev/bot-shell/client/toast.js";
 import { getLocale, setLocale, t } from "./i18n.js";
-import { createRpc } from "./rpc.js";
+import { createRpc } from "@agenticos-dev/bot-shell/client/rpc.js";
 import { S, loadCampaigns, loadCapabilities, loadSender, openDraft, setView } from "./state.js";
 import { gadgetApp } from "./views.js";
+
+// The facet's method surface — createRpc wraps only what is declared here, so
+// a contract change on the server side touches this list rather than every
+// view module that happens to need a row.
+const RPC_METHODS = [
+  "summary", "getCapabilities", "refreshGrants", "setConfig",
+  "listCampaigns", "getCampaign", "getDraft", "getReview", "exportDraft", "previewHtml",
+  "createCampaign", "applyCommand", "saveDraft", "selectCampaign", "deleteCampaign",
+  "listProposals", "proposeChange", "acceptProposal", "rejectProposal",
+  "getSenderStatus", "listSegments", "searchAccounts", "getSchedules",
+  "refreshEstimate", "sendTest", "sendNow", "scheduleSend", "undoSend", "refreshCampaignStatus", "verifySender",
+  "subscribe"
+];
 
 const BASE_STYLE = `${sharedTokens}\n${sharedComponents}\n${appCss}`;
 
@@ -55,7 +70,7 @@ function App() {
   const qs = new URLSearchParams(location.search);
   setLocale((qs.get("locale") ?? qs.get("lang")) === "zh-HK" ? "zh" : "en");
   buildChrome();
-  const rpc = createRpc(globalThis.gadget);
+  const rpc = createRpc(globalThis.gadget, RPC_METHODS);
 
   function render() {
     document.documentElement.lang = getLocale() === "zh" ? "zh-HK" : "en";

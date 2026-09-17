@@ -9,6 +9,7 @@
 // (`saveDraft`/`applyCommand`/`sendNow`…).
 
 import { EMAIL_CAMPAIGN_DEFINITION } from "../../../definition.ts";
+import { reviewTabs } from "@agenticos-dev/bot-shell/client/collection.js";
 import { audienceKey, draftFingerprint, missingForSend, normalizeDraft } from "../../model.js";
 import { getLocale, number, setLocale, t } from "./i18n.js";
 
@@ -103,20 +104,19 @@ export function recipientsOf(row) {
 }
 
 /**
- * The list's filter tabs, projected from `review_state` options. The first is
- * always All; options inside the definition's mutable set share the Draft
- * tab; every closed option is its own tab. `[en, zh]` labels come from
- * STATE_VOCAB, falling back to the raw option so a new option still renders.
+ * The list's filter tabs, projected from `review_state` options by the shared
+ * `reviewTabs`. The first is always All; options inside the definition's
+ * mutable set share the Draft tab; every closed option is its own tab.
+ * `[en, zh]` labels come from STATE_VOCAB, falling back to the raw option so
+ * a new option still renders.
  */
 export function filterTabs(options = REVIEW_STATE_OPTIONS, open = OPEN_STATE_OPTIONS) {
-  const tabs = [{ id: "all", states: null, label: ["All", "全部"] }];
-  const openStates = options.filter((option) => open.includes(option));
-  if (openStates.length) tabs.push({ id: "draft", states: openStates, label: ["Drafts", "草稿"] });
-  for (const option of options.filter((entry) => !open.includes(entry))) {
-    const vocab = STATE_VOCAB[option];
-    tabs.push({ id: option, states: [option], label: vocab?.label ?? [option.replace(/_/g, " "), option] });
-  }
-  return tabs;
+  return reviewTabs({
+    options,
+    open,
+    vocab: STATE_VOCAB,
+    labels: { all: ["All", "全部"], draft: ["Drafts", "草稿"] }
+  });
 }
 
 /** The status chip — label + badge tone — for a list row or the editor head. */

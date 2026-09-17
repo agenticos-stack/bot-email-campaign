@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
 import { buildClient } from "../../scripts/client.mjs";
 import { installMinimalDom, flushAsyncWork } from "./_helpers/minimal-dom.ts";
-import { button, esc } from "../../src/src/client/dom.js";
+import { button, esc } from "@agenticos-dev/bot-shell/client/dom.js";
 import { getLocale, setLocale, t } from "../../src/src/client/i18n.js";
 import { S, dirty, estimateStale, filterTabs, loadCampaigns, missing, readOnly, reviewStateOf, sourceLabel, statusChip } from "../../src/src/client/state.js";
 import { gadgetApp } from "../../src/src/client/views.js";
@@ -75,8 +75,8 @@ describe("i18n", () => {
 });
 
 describe("button — stable-label rendering", () => {
-  it("marks the governed actions whose label must not reflow on busy", () => {
-    const save = button("save", "Save draft");
+  it("renders the width-preserving busy label only when one is supplied", () => {
+    const save = button("save", "Save draft", { stableLabel: "Save draft" });
     expect(save).toContain('data-action="save"');
     expect(save).toContain("busy-label");
     const plain = button("filter", "Drafts");
