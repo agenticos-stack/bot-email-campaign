@@ -151,7 +151,9 @@ export class Gadget extends DurableObject {
    * hold another gadget's draft.
    */
   async listCampaigns() {
-    const drafts = this.storage.listCampaigns();
+    // The list payload is the bounded summary — reviewState, scheduledFor and
+    // a real recipients count or null — never the whole draft blob per row.
+    const drafts = this.storage.listCampaigns().map(campaignSummary);
     const siblings = await listWorkspaceGadgets(this.env);
     const history = await favcrmCampaignHistory(this.env, { limit: 50 });
     return {
@@ -646,6 +648,13 @@ function campaignSummary(campaign) {
     status: campaign.status,
     subject: campaign.draft?.subject ?? "",
     revision: campaign.revision,
-    updatedAt: campaign.updatedAt
+    updatedAt: campaign.updatedAt,
+    // Honest list-row fields: the effective review_state (same computation
+    // `applyCommand` locks against), the scheduled time when one exists, and
+    // the last estimate's eligible count — a real number or absent, so the
+    // canvas shows "—" instead of inventing a recipient count.
+    reviewState: effectiveReviewState(campaign),
+    scheduledFor: campaign.draft?.scheduled_for ?? "",
+    recipients: typeof campaign.estimate?.eligible === "number" ? campaign.estimate.eligible : null
   };
 }

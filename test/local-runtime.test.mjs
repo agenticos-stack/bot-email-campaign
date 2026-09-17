@@ -23,10 +23,15 @@ test('real Email Campaign SQLite draft, revision conflict, and capability gap', 
   }));
   try {
     session = await createEmailRuntime(options);
-    // The fixture seeds one draft, and the summary reports it.
+    // The fixture seeds across the lifecycle — draft, scheduled, sent — and
+    // the summary reports them with honest review_state + recipients fields.
     const summary = (await (await call('summary')).json()).value;
     assert.equal(summary.ok, true);
-    assert.equal(summary.campaigns.length, 1);
+    assert.equal(summary.campaigns.length, 3);
+    const byReview = Object.fromEntries(summary.campaigns.map((c) => [c.id, c.reviewState]));
+    assert.deepEqual({ cmp_autumn: byReview.cmp_autumn, cmp_oct: byReview.cmp_oct, cmp_aug: byReview.cmp_aug }, { cmp_autumn: 'drafting', cmp_oct: 'scheduled', cmp_aug: 'sent' });
+    assert.equal(summary.campaigns.find((c) => c.id === 'cmp_aug').recipients, 1098);
+    assert.equal(summary.campaigns.find((c) => c.id === 'cmp_autumn').recipients, null);
     const draft = (await (await call('getDraft',[{id:'cmp_autumn'}])).json()).value;
     assert.equal(draft.campaign.draft.subject, 'A new season, a little something for you');
 

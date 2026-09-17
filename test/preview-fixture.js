@@ -47,12 +47,40 @@ const audKey = (d) => JSON.stringify({ source: d.audience_source ?? "all", segme
 campaign.estimate.key = audKey(campaign.draft);
 campaign.estimateKey = campaign.estimate.key;
 
+// Rows across the lifecycle — the list needs to show draft/scheduled/sent
+// chips on first load, exactly the states the definition declares.
+const scheduled = {
+  id: "cmp_oct", title: "October workshop launch",
+  draft: { audience_source: "all", audience_segment: [], audience_accounts: [], audience_exclusions: [], subject: "October workshops — first look", preheader: "", sections: [{ id: "s_a", type: "body", body: "Synthetic scheduled draft." }], scheduled_for: "2026-10-02T09:00" },
+  revision: 4, status: "approved",
+  estimate: { key: "", total: 1248, excluded: 0, missing: 0, consent: 0, opted: 0, eligible: 1248 }, estimateKey: "",
+  outcome: { review_state: "scheduled", approvals: [{ by: "fixture", at: "2026-09-16T10:00:00.000Z" }] },
+  savedFingerprint: "", createdAt: "2026-09-15T08:00:00.000Z", updatedAt: "2026-09-16T10:00:00.000Z"
+};
+const sentRow = {
+  id: "cmp_aug", title: "August member update",
+  draft: { audience_source: "all", audience_segment: [], audience_accounts: [], audience_exclusions: [], subject: "August member update", preheader: "", sections: [{ id: "s_b", type: "body", body: "Synthetic sent campaign." }], scheduled_for: "" },
+  revision: 9, status: "sent",
+  estimate: { key: "", total: 1248, excluded: 0, missing: 0, consent: 0, opted: 0, eligible: 1098 }, estimateKey: "",
+  outcome: { review_state: "sent", sent_at: "2026-08-18T09:12:00.000Z", favcrm_campaign_id: "fx_aug", delivery_stats: { sent: 1098, delivered: 1042, failed: 0, bounced: 3 } },
+  savedFingerprint: "", createdAt: "2026-08-17T08:00:00.000Z", updatedAt: "2026-08-18T09:12:00.000Z"
+};
+
 // `?empty=1` seeds no campaigns — with every capability off (`favcrm=0…`) that
 // is the first-run state that lands the canvas on the setup view.
-const campaigns = params.get("empty") === "1" ? [] : [campaign];
+// `?error=1` makes listCampaigns refuse — the canvas must show the refusal
+// text itself and hold the skeleton geometry behind it.
+const campaigns = params.get("empty") === "1" ? [] : [campaign, scheduled, sentRow];
+
+const summaryRow = (c) => ({
+  id: c.id, title: c.title, status: c.status, subject: c.draft.subject, revision: c.revision, updatedAt: c.updatedAt,
+  reviewState: c.outcome?.review_state ?? (c.status === "approved" && c.draft?.scheduled_for ? "scheduled" : c.status === "sent" ? "sent" : "drafting"),
+  scheduledFor: c.draft?.scheduled_for ?? "",
+  recipients: typeof c.estimate?.eligible === "number" ? c.estimate.eligible : null
+});
 
 globalThis.gadget = {
-  async summary() { return { ok: true, campaigns: campaigns.map((c) => ({ id: c.id, title: c.title, status: c.status, subject: c.draft.subject, revision: c.revision, updatedAt: c.updatedAt })), capabilities: this._caps(), selectedCampaignId: campaign.id }; },
+  async summary() { return { ok: true, campaigns: campaigns.map(summaryRow), capabilities: this._caps(), selectedCampaignId: campaign.id }; },
   _caps() {
     return {
       favcrm_connector: { granted: withCaps("favcrm"), interim: false },
@@ -65,7 +93,10 @@ globalThis.gadget = {
   async refreshGrants() { return this.getCapabilities(); },
   async setConfig() { return { ok: true, config: {} }; },
   async listCampaigns() {
-    return { ok: true, drafts: campaigns.map((c) => JSON.parse(JSON.stringify(c))), siblings: [], history: { campaigns: [] }, capabilities: this._caps() };
+    if (params.get("error") === "1") {
+      return { ok: false, code: "capability_unavailable", message: "Fixture refusal — the campaign store is unreachable on purpose." };
+    }
+    return { ok: true, drafts: campaigns.map((c) => JSON.parse(JSON.stringify(summaryRow(c)))), siblings: [], history: { campaigns: [] }, capabilities: this._caps() };
   },
   async getCampaign(id) { const c = campaigns.find((x) => x.id === id); return c ? { ok: true, campaign: JSON.parse(JSON.stringify(c)) } : { ok: false, code: "not_found", message: "No such campaign draft." }; },
   async getDraft(input = {}) {
@@ -76,8 +107,8 @@ globalThis.gadget = {
   async getReview(input = {}) { const r = await this.getDraft(input); return r.ok ? { ok: true, ...r, estimate: r.campaign.estimate, outcome: r.campaign.outcome, savedFingerprint: r.campaign.savedFingerprint, capabilities: this._caps() } : r; },
   async exportDraft(input = {}) { const r = await this.getDraft(input); return r.ok ? { ok: true, campaignId: r.campaign.id, revision: r.campaign.revision, fingerprint: "", fields: r.campaign.draft } : r; },
   async previewHtml() { return { ok: true, html: "" }; },
-  async createCampaign() {
-    const c = { id: `cmp_${campaigns.length}`, title: "", draft: { audience_source: "all", audience_segment: [], audience_accounts: [], audience_exclusions: [], subject: "", preheader: "", sections: [], scheduled_for: "" }, revision: 0, status: "draft", estimate: null, estimateKey: "", outcome: null, savedFingerprint: "", createdAt: "", updatedAt: "" };
+  async createCampaign(input = {}) {
+    const c = { id: `cmp_${campaigns.length}`, title: input.title ?? "", draft: { audience_source: "all", audience_segment: [], audience_accounts: [], audience_exclusions: [], subject: "", preheader: "", sections: [], scheduled_for: "" }, revision: 0, status: "draft", estimate: null, estimateKey: "", outcome: null, savedFingerprint: "", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     campaigns.unshift(c);
     return { ok: true, campaign: JSON.parse(JSON.stringify(c)) };
   },

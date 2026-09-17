@@ -16,9 +16,11 @@ export async function createEmailRuntime({ files, sdkSource, origins, stateDirec
       async seedLocal() {
         return this.ctx.storage.transactionSync(() => {
         if (this.storage.listCampaigns().length) return {seeded:0};
-        // One synthetic draft — the composer opens with real rows to read.
-        // Nothing here is a recipient list or a send; it is content shape only.
+        // Synthetic rows across the lifecycle — the composer opens with real
+        // drafts to read and the list shows every review_state chip. Nothing
+        // here is a recipient list or a send; it is content shape only.
         this.storage.setSession('config', normalizeConfig({}));
+        const now = new Date().toISOString();
         const draft = normalizeDraft({
           title: 'September members’ edit',
           audience_source: 'segment',
@@ -32,9 +34,35 @@ export async function createEmailRuntime({ files, sdkSource, origins, stateDirec
             { type: 'cta', cta_label: 'Explore September workshops', cta_url: 'https://example.com/workshops' }
           ]
         });
-        const c = this.storage.createCampaign({ id: 'cmp_autumn', title: draft.title, draft, now: new Date().toISOString() });
+        const c = this.storage.createCampaign({ id: 'cmp_autumn', title: draft.title, draft, now });
+        // An approved draft with a send time — the definition's scheduled
+        // review_state, surfaced by campaignSummary's effectiveReviewState.
+        const scheduled = this.storage.createCampaign({ id: 'cmp_oct', title: 'October workshop launch', draft: normalizeDraft({
+          title: 'October workshop launch',
+          audience_source: 'all',
+          subject: 'October workshops — first look',
+          sections: [{ type: 'body', body: 'Synthetic scheduled draft.' }],
+          scheduled_for: '2026-10-02T09:00'
+        }), now });
+        this.storage.updateCampaignOutcome(scheduled.id, {
+          status: 'approved',
+          outcomeJson: JSON.stringify({ review_state: 'scheduled', approvals: [{ by: 'local-seed', at: now }] }),
+          estimateJson: JSON.stringify({ eligible: 1248, total: 1248 }),
+          now
+        });
+        // A completed send — outcome the domain would have written.
+        const sent = this.storage.createCampaign({ id: 'cmp_aug', title: 'August member update', draft: normalizeDraft({
+          title: 'August member update', subject: 'August member update',
+          sections: [{ type: 'body', body: 'Synthetic sent campaign.' }]
+        }), now });
+        this.storage.updateCampaignOutcome(sent.id, {
+          status: 'sent',
+          outcomeJson: JSON.stringify({ review_state: 'sent', sent_at: '2026-08-18T09:12:00.000Z', favcrm_campaign_id: 'fx_aug', delivery_stats: { sent: 1098, delivered: 1042, failed: 0, bounced: 3 } }),
+          estimateJson: JSON.stringify({ eligible: 1098, total: 1248 }),
+          now: '2026-08-18T09:12:00.000Z'
+        });
         this.storage.setSession('selectedCampaignId', c.id);
-        return {seeded:1};
+        return {seeded:3};
         });
       }
     }`;

@@ -95,11 +95,12 @@ test("the client stylesheet survives the bundler intact", async () => {
   const { buildClient } = await import("../scripts/client.mjs");
   const bundle = await buildClient();
   for (const rule of [
-    ".door-strip",                    // the capability strip, early in the sheet
-    ".mail-body",                     // the composer's send preview
-    ".conflict-choice",               // the revision-conflict dialog
-    ".proposal-line",                 // the assistant-proposal row
-    "@media (prefers-reduced-motion"  // the last rule in the sheet
+    ".strip",                         // the status strip, early in the sheet
+    ".mail-inner",                    // the composer's live preview
+    ".choice",                        // radio cards — audience + conflict dialog
+    ".section-block",                 // the typed block editor
+    "@media (prefers-reduced-motion", // the motion contract
+    "@media (max-width: 640px"        // the last rule in the sheet
   ]) {
     assert.ok(bundle.includes(rule), `stylesheet lost ${rule}`);
   }

@@ -49,14 +49,17 @@ const paths = {
   door: "M15 3h4v18h-4 M10 17l5-5-5-5 M15 12H3",
   chat: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
   eye: "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8 M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
-  code: "M8 6l-6 6 6 6 M16 6l6 6-6 6"
+  code: "M8 6l-6 6 6 6 M16 6l6 6-6 6",
+  dots: "M5 12h.01 M12 12h.01 M19 12h.01",
+  copy: "M11 9h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2 M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1",
+  alert: "M12 8v5 M12 17h.01 M10.3 3.8L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0z"
 };
 
 export const icon = (n, cls = "") =>
   `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[n] || paths.mail}"/></svg>`;
 
 /** A stable-labelled button — the label keeps its width while the text swaps to a busy state. */
-export function button(action, label, { kind = "", ic = "", key = action, disabled = false, extra = "" } = {}) {
+export function button(action, label, { kind = "", ic = "", key = action, value = "", disabled = false, extra = "" } = {}) {
   const stable = {
     save: t("Save draft", "儲存草稿"),
     estimate: t("Refresh estimate", "更新預估"),
@@ -67,11 +70,11 @@ export function button(action, label, { kind = "", ic = "", key = action, disabl
   const text = stable[action]
     ? `<span class="busy-label"><span class="measure" aria-hidden="true">${stable[action]}</span><span>${label}</span></span>`
     : `<span>${label}</span>`;
-  return `<button type="button" class="btn ${kind}" data-action="${action}" data-key="${esc(key)}" ${disabled ? 'aria-disabled="true"' : ""} ${extra}>${ic ? icon(ic) : ""}${text}</button>`;
+  return `<button type="button" class="btn ${kind}" data-action="${action}" data-key="${esc(key)}"${value !== "" ? ` data-value="${esc(value)}"` : ""} ${disabled ? 'aria-disabled="true"' : ""} ${extra}>${ic ? icon(ic) : ""}${text}</button>`;
 }
 
-export function field(key, label, value, { type = "text", hint = "", placeholder = "", disabled = false } = {}) {
-  return `<div class="field"><label for="${key}">${label}</label><input id="${key}" data-field="${key}" data-key="${key}" type="${type}" value="${esc(value)}" placeholder="${esc(placeholder)}" ${disabled ? "disabled" : ""}>${hint ? `<p id="${key}-hint" class="hint">${hint}</p>` : ""}</div>`;
+export function field(key, label, value, { type = "text", hint = "", placeholder = "", disabled = false, required = false } = {}) {
+  return `<div class="field"><label class="field-label" for="${key}">${label}${required ? '<span class="req">*</span>' : ""}</label><input id="${key}" class="field-control" data-field="${key}" data-key="${key}" type="${type}" value="${esc(value)}" placeholder="${esc(placeholder)}" ${disabled ? "disabled" : ""}${required ? " required" : ""}>${hint ? `<p id="${key}-hint" class="field-hint">${hint}</p>` : ""}</div>`;
 }
 
 export function notice(title, body = "", kind = "", action = "") {

@@ -8,11 +8,12 @@
 // to a facet read (`getDraft`/`getReview`/`getCapabilities`) or a facet write
 // (`saveDraft`/`applyCommand`/`sendNow`…).
 
+import { EMAIL_CAMPAIGN_DEFINITION } from "../../../definition.ts";
 import { audienceKey, draftFingerprint, missingForSend, normalizeDraft } from "../../model.js";
-import { getLocale, setLocale, t } from "./i18n.js";
+import { getLocale, number, setLocale, t } from "./i18n.js";
 
 export const S = {
-  view: "auto", // auto | list | editor | setup — auto resolves on first load
+  view: "auto", // auto | list | new | editor | setup — auto resolves on first load
   step: 0, // 0 audience · 1 content · 2 review
   filter: "all",
   search: "",
@@ -39,33 +40,103 @@ export const S = {
   conflictChoice: "mine",
   grantKey: "",
   provider: "resend",
+  newName: "",
+  testTo: "",
+  testSent: "",
+  menuOpen: false,
   undoTimer: null
 };
 
-/** Display status → [en, zh] label, mapped off the facet's lifecycle + op. */
-export function statusLabel(campaign) {
+// ---------------------------------------------------------------------------
+// review_state — the definition's vocabulary, projected into the canvas.
+//
+// The list's filter tabs and status chips read the SAME `review_state` options
+// the definition declares, so adding or removing an option changes the tabs
+// with no second list to edit. `mutableWhen.in` names the open (editable)
+// states; they fold into the one "Draft" tab the accepted design shows —
+// every closed option gets its own tab.
+// ---------------------------------------------------------------------------
+
+export const REVIEW_STATE_OPTIONS = Object.freeze(
+  EMAIL_CAMPAIGN_DEFINITION.fields.find((field) => field.key === "review_state")?.options ?? []
+);
+const OPEN_STATE_OPTIONS = Object.freeze(REVIEW_STATE_OPTIONS.filter((option) => EMAIL_CAMPAIGN_DEFINITION.mutableWhen?.in?.includes(option)));
+
+/** Display vocabulary for a review_state option — [en, zh] label + chip tone. */
+const STATE_VOCAB = {
+  drafting: { label: ["Draft", "草稿"], tone: "neutral" },
+  in_review: { label: ["In review", "審閱中"], tone: "neutral" },
+  approved: { label: ["Approved", "已核准"], tone: "neutral" },
+  scheduled: { label: ["Scheduled", "已排程"], tone: "warning" },
+  sending: { label: ["Sending", "傳送中"], tone: "warning" },
+  sent: { label: ["Sent", "已發送"], tone: "success" },
+  paused: { label: ["Paused", "已暫停"], tone: "warning" },
+  cancelled: { label: ["Cancelled", "已取消"], tone: "neutral" }
+};
+
+/**
+ * A row's effective review_state: the domain mirror's value when it wrote one,
+ * else the facet lifecycle mapped onto the definition's vocabulary — the same
+ * mapping `effectiveReviewState` applies server-side. `approved` carrying a
+ * `scheduled_for` IS the scheduled state the domain writes; facet-only
+ * statuses past approval (`queued`, `attention`) group under `sent` for
+ * filtering while keeping their honest chip labels.
+ */
+export function reviewStateOf(campaign) {
+  // The facet computes the honest value — prefer it (list rows carry it).
+  if (typeof campaign?.reviewState === "string" && campaign.reviewState) return campaign.reviewState;
+  const mirror = campaign?.outcome?.review_state;
+  if (typeof mirror === "string" && mirror) return mirror;
   const status = campaign?.status ?? "draft";
-  const labels = {
-    draft: ["Draft", "草稿"],
-    in_review: ["Draft", "草稿"],
-    approved: campaign?.draft?.scheduled_for ? ["Scheduled", "已排程"] : ["Approved", "已核准"],
-    queued: ["Queued · undo available", "已加入佇列 · 可撤回"],
-    sent: ["Sent", "已傳送"],
-    attention: ["Needs attention", "需要處理"]
-  };
-  return labels[status] ?? labels.draft;
+  if (status === "approved") return campaign?.draft?.scheduled_for ? "scheduled" : "approved";
+  return { draft: "drafting", in_review: "in_review", sent: "sent", queued: "sent", attention: "sent" }[status] ?? status;
 }
 
-export function statusClass(campaign) {
-  const status = campaign?.status ?? "draft";
-  if (S.op?.status === "unknown" || status === "attention") return "attention";
-  if (status === "queued") return "buffered";
-  if (status === "approved" && campaign?.draft?.scheduled_for) return "scheduled";
-  return status === "in_review" ? "draft" : status;
+/** The row's Recipients cell — a real count or an honest dash, never invented. */
+export function recipientsOf(row) {
+  if (typeof row?.recipients === "number") return number(row.recipients);
+  if (typeof row?.estimate?.eligible === "number") return number(row.estimate.eligible);
+  if (typeof row?.stats?.sent === "number") return number(row.stats.sent);
+  return "—";
 }
 
-export function statusBadge(campaign) {
-  return `<span class="status ${statusClass(campaign)}">${t(...statusLabel(campaign))}</span>`;
+/**
+ * The list's filter tabs, projected from `review_state` options. The first is
+ * always All; options inside the definition's mutable set share the Draft
+ * tab; every closed option is its own tab. `[en, zh]` labels come from
+ * STATE_VOCAB, falling back to the raw option so a new option still renders.
+ */
+export function filterTabs(options = REVIEW_STATE_OPTIONS, open = OPEN_STATE_OPTIONS) {
+  const tabs = [{ id: "all", states: null, label: ["All", "全部"] }];
+  const openStates = options.filter((option) => open.includes(option));
+  if (openStates.length) tabs.push({ id: "draft", states: openStates, label: ["Drafts", "草稿"] });
+  for (const option of options.filter((entry) => !open.includes(entry))) {
+    const vocab = STATE_VOCAB[option];
+    tabs.push({ id: option, states: [option], label: vocab?.label ?? [option.replace(/_/g, " "), option] });
+  }
+  return tabs;
+}
+
+/** The status chip — label + badge tone — for a list row or the editor head. */
+export function statusChip(campaign) {
+  const status = campaign?.status ?? "draft";
+  if (S.op?.status === "unknown" || status === "attention") return { label: ["Needs attention", "需要處理"], tone: "danger" };
+  if (status === "queued") return { label: ["Queued — undo open", "已加入佇列 · 可撤回"], tone: "warning" };
+  const state = reviewStateOf(campaign);
+  const vocab = STATE_VOCAB[state];
+  return { label: vocab?.label ?? [state.replace(/_/g, " "), state], tone: vocab?.tone ?? "neutral" };
+}
+
+/** Row "updated" column — minute precision, today gets a bare time. */
+export function when(iso) {
+  if (!iso) return "—";
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return "—";
+  const now = new Date();
+  const hm = `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
+  if (dt.toDateString() === now.toDateString()) return t(`Today ${hm}`, `今天 ${hm}`);
+  const md = getLocale() === "zh" ? `${dt.getMonth() + 1} 月 ${dt.getDate()} 日` : `${dt.getMonth() + 1}/${dt.getDate()}`;
+  return `${md} ${hm}`;
 }
 
 /** Unsaved edits — the working copy diverged from the facet's stored draft. */
@@ -124,7 +195,15 @@ export async function loadSender(rpc) {
 
 /** The campaign list: this facet's drafts + sibling metadata + FavCRM history. */
 export async function loadCampaigns(rpc) {
-  const res = await rpc.listCampaigns();
+  let res;
+  try {
+    res = await rpc.listCampaigns();
+  } catch (error) {
+    // A thrown refusal (the local-runtime bridge throws on ok:false) still
+    // carries the facet's reason in error.message — show it, not a paraphrase.
+    S.loadError = error?.message || t("Campaigns could not be loaded", "無法載入活動");
+    return { ok: false };
+  }
   if (!res?.ok) {
     S.loadError = res?.message || t("Campaigns could not be loaded", "無法載入活動");
     return res;
@@ -157,12 +236,15 @@ export async function openDraft(rpc, id) {
   S.proposals = props?.ok ? props.proposals ?? [] : [];
   S.view = "editor";
   S.step = 0;
+  S.testSent = "";
+  S.menuOpen = false;
   S.op = res.campaign.status === "attention" ? { status: "unknown" } : res.campaign.status === "queued" ? { status: "pending" } : null;
   return res;
 }
 
 export function setView(view) {
   S.view = view;
+  S.menuOpen = false;
   if (view === "list") {
     S.campaign = null;
     S.edit = null;

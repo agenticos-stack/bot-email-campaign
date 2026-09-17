@@ -17,6 +17,7 @@ import {
   parseGadgetDoorsChangedMessage,
   parseGadgetGrantResultMessage
 } from "../../grant-request.js";
+import { normalizeDraft } from "../../model.js";
 import { createActions } from "./actions.js";
 import { $, announce, closeDialog, preserveRender } from "./dom.js";
 import { getLocale, setLocale, t } from "./i18n.js";
@@ -50,7 +51,9 @@ function buildChrome() {
 
 function App() {
   const root = document.getElementById("gadget-root") ?? document.body;
-  setLocale(new URLSearchParams(location.search).get("lang") === "zh-HK" ? "zh" : "en");
+  // The workspace shell passes `?locale=`; `?lang=` stays for direct links.
+  const qs = new URLSearchParams(location.search);
+  setLocale((qs.get("locale") ?? qs.get("lang")) === "zh-HK" ? "zh" : "en");
   buildChrome();
   const rpc = createRpc(globalThis.gadget);
 
@@ -113,6 +116,7 @@ function App() {
     const fn = act[el.dataset.action];
     if (!fn) return;
     if (el.getAttribute("aria-disabled") === "true") return;
+    if (el.dataset.action !== "menu") S.menuOpen = false;
     Promise.resolve(fn(el.dataset.value ?? el.dataset.id, el))
       .catch((error) => console.error(error))
       .then(render);
@@ -151,6 +155,14 @@ function App() {
         }, 200);
         return;
       }
+      if (k === "audience_source") {
+        if (S.edit) {
+          S.edit.audience_source = el.value;
+          S.edit = normalizeDraft(S.edit);
+        }
+        render();
+        return;
+      }
       if (k === "segment") {
         if (S.edit) {
           const seg = S.segments.find((s) => (s.segment_id ?? s.id) === el.value);
@@ -166,6 +178,16 @@ function App() {
       }
       if (k === "schedule") {
         if (S.edit) S.edit.scheduled_for = el.value;
+        render();
+        return;
+      }
+      if (k === "newName") {
+        S.newName = el.value;
+        render();
+        return;
+      }
+      if (k === "testTo") {
+        S.testTo = el.value;
         render();
         return;
       }
@@ -192,6 +214,34 @@ function App() {
         s[blk.dataset.bf] = blk.value;
         render();
       }
+    }
+  });
+
+  // Radios, selects and datetime inputs commit on `change`, not `input` —
+  // route the same fields through a second listener (the input handler's
+  // switch covers the shared cases; setting is idempotent).
+  document.addEventListener("change", (e) => {
+    const el = e.target.closest("[data-field]");
+    if (!el) return;
+    const k = el.dataset.field;
+    if (k === "audience_source" && S.edit) {
+      S.edit.audience_source = el.value;
+      S.edit = normalizeDraft(S.edit);
+      render();
+    } else if (k === "timing" && S.edit) {
+      S.edit.scheduled_for = el.value === "later" ? S.edit.scheduled_for || "" : "";
+      render();
+    } else if (k === "schedule" && S.edit) {
+      S.edit.scheduled_for = el.value;
+      render();
+    } else if (k === "segment" && S.edit) {
+      const seg = S.segments.find((s) => (s.segment_id ?? s.id) === el.value);
+      S.edit.audience_segment = seg ? [{ segment_id: seg.segment_id ?? seg.id, label: seg.label ?? seg.name ?? "" }] : [{ segment_id: el.value, label: el.value }];
+      render();
+    } else if (k === "conflictChoice") {
+      S.conflictChoice = el.value;
+    } else if (k === "provider") {
+      S.provider = el.value;
     }
   });
 

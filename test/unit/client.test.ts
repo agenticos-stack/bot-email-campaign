@@ -11,7 +11,8 @@ import { buildClient } from "../../scripts/client.mjs";
 import { installMinimalDom, flushAsyncWork } from "./_helpers/minimal-dom.ts";
 import { button, esc } from "../../src/src/client/dom.js";
 import { getLocale, setLocale, t } from "../../src/src/client/i18n.js";
-import { S, dirty, estimateStale, loadCampaigns, missing, readOnly, sourceLabel, statusClass } from "../../src/src/client/state.js";
+import { S, dirty, estimateStale, filterTabs, loadCampaigns, missing, readOnly, reviewStateOf, sourceLabel, statusChip } from "../../src/src/client/state.js";
+import { gadgetApp } from "../../src/src/client/views.js";
 import { normalizeDraft } from "../../src/model.js";
 
 beforeEach(() => {
@@ -24,6 +25,19 @@ beforeEach(() => {
   S.busy = "";
   S.capabilities = {};
   S.view = "list";
+  S.loading = false;
+  S.loadError = "";
+  S.filter = "all";
+  S.search = "";
+  S.campaigns = [];
+  S.siblings = [];
+  S.history = [];
+  S.proposals = [];
+  S.sender = null;
+  S.newName = "";
+  S.testTo = "";
+  S.testSent = "";
+  S.menuOpen = false;
 });
 
 describe("esc — the render boundary", () => {
@@ -94,12 +108,39 @@ describe("state derived flags", () => {
     expect(estimateStale()).toBe(true);
   });
 
-  it("statusLabel/statusClass surface an uncertain send as attention, not sent", () => {
+  it("statusChip surfaces an uncertain send as attention, not sent", () => {
     const c = { status: "sent" };
     S.op = { status: "unknown" };
-    expect(statusClass(c)).toBe("attention");
+    expect(statusChip(c).label[0]).toBe("Needs attention");
+    expect(statusChip(c).tone).toBe("danger");
     S.op = null;
-    expect(statusClass({ status: "queued" })).toBe("buffered");
+    expect(statusChip({ status: "queued" }).label[0]).toBe("Queued — undo open");
+  });
+
+  it("statusChip speaks the definition's review_state vocabulary — 已排程, not a second list", () => {
+    S.op = null;
+    // A draft carrying approved + scheduled_for is the scheduled state.
+    expect(statusChip({ status: "approved", draft: { scheduled_for: "2026-10-02T09:00" } }).label).toEqual(["Scheduled", "已排程"]);
+    expect(statusChip({ status: "sent" }).label).toEqual(["Sent", "已發送"]);
+    expect(statusChip({ status: "sent" }).tone).toBe("success");
+    expect(statusChip({ status: "draft" }).label).toEqual(["Draft", "草稿"]);
+  });
+
+  it("filterTabs are projected from the definition's review_state options", () => {
+    // review_state declares [drafting, in_review, approved, scheduled, sent];
+    // mutableWhen folds drafting/in_review/approved into the one Drafts tab.
+    const tabs = filterTabs();
+    expect(tabs.map((tab) => tab.id)).toEqual(["all", "draft", "scheduled", "sent"]);
+    expect(tabs[1].states).toEqual(["drafting", "in_review", "approved"]);
+    expect(tabs.find((tab) => tab.id === "scheduled")?.label).toEqual(["Scheduled", "已排程"]);
+  });
+
+  it("reviewStateOf prefers the facet's value, then the domain mirror, then the lifecycle map", () => {
+    expect(reviewStateOf({ reviewState: "sent" })).toBe("sent");
+    expect(reviewStateOf({ outcome: { review_state: "scheduled" } })).toBe("scheduled");
+    expect(reviewStateOf({ status: "approved", draft: { scheduled_for: "2026-10-02T09:00" } })).toBe("scheduled");
+    expect(reviewStateOf({ status: "draft" })).toBe("drafting");
+    expect(reviewStateOf({ status: "queued" })).toBe("sent");
   });
 
   it("readOnly() blocks editing a sent or upstream-only campaign", () => {
@@ -115,6 +156,24 @@ describe("state derived flags", () => {
   it("sourceLabel() names the audience the fingerprint row shows", () => {
     expect(sourceLabel(normalizeDraft({ audience_source: "all" }))).toBe("All customers");
     expect(sourceLabel(normalizeDraft({ audience_source: "segment", audience_segment: [{ segment_id: "s", label: "Active" }] }))).toBe("Active");
+  });
+});
+
+describe("honest error copy — defect B", () => {
+  it("errorView renders the facet's actual refusal, not a paraphrase", async () => {
+    const refusal = "Local runtime: capability_unavailable — favcrm_connector is not granted.";
+    await loadCampaigns({ listCampaigns: async () => ({ ok: false, code: "capability_unavailable", message: refusal }) });
+    expect(S.loadError).toBe(refusal);
+    const html = gadgetApp();
+    expect(html).toContain(refusal);
+    expect(html).toContain('data-action="retry"');
+    expect(html).not.toContain("The gadget store did not answer");
+  });
+
+  it("carries a thrown refusal's message — the local bridge throws on ok:false", async () => {
+    await loadCampaigns({ listCampaigns: async () => { throw new Error("Local runtime: local_session_required."); } });
+    expect(S.loadError).toBe("Local runtime: local_session_required.");
+    expect(gadgetApp()).toContain("local_session_required");
   });
 });
 
@@ -203,7 +262,8 @@ describe("bundled client.js — smoke load", () => {
     // string, so assert on it rather than a parsed childNodes tree.
     const rootText = (gadgetRoot as unknown as { innerHTML?: string }).innerHTML ?? "";
     expect(rootText.length).toBeGreaterThan(0);
-    expect(rootText).toContain("door-strip");
+    // The container card + its definition-projected filters — the mockup's list.
+    expect(rootText).toContain("filters");
     expect(rootText).toContain("September members");
   });
 });

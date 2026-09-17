@@ -56,7 +56,7 @@ test("preview fixture lists campaigns and opens a draft with an estimate", async
   const gadget = await fixture();
   const list = await gadget.listCampaigns();
   assert.equal(list.ok, true);
-  assert.equal(list.drafts.length, 1);
+  assert.equal(list.drafts.length, 3);
   const draft = await gadget.getDraft({ id: "cmp_autumn" });
   assert.equal(draft.ok, true);
   assert.equal(draft.campaign.draft.subject, "A new season, a little something for you");

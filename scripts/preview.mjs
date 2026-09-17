@@ -492,8 +492,30 @@ const server = createServer(async (request, response) => {
   if (connected && ['/canvas','/client.js','/fixture.js','/local-rpc'].includes(url.pathname)) { response.writeHead(404).end(); return; }
   if (runtime && url.pathname === '/local-rpc') {
     try {
+      /*
+       * Host-alias origins: the dev gateway serves this preview under a name
+       * (email.localhost:18000) the testkit's loopback allowlist does not
+       * admit, so a same-origin canvas POST arrives as Origin:
+       * http://email.localhost:18000 and is refused `local_session_required`
+       * even though it is exactly the request the session exists to serve.
+       *
+       * The check the session performs is "is the caller a page this server
+       * served" — an Origin whose host is the request's own Host is
+       * same-origin-as-served under whatever alias carried it (a cross-origin
+       * page always reports an Origin host different from the target's).
+       * Normalize that case to the loopback origin the session admitted; the
+       * `x-bot-local-session` token check is unchanged either way.
+       */
+      const headers = new Headers(request.headers);
+      const origin = headers.get('origin');
+      if (origin) {
+        try {
+          const from = new URL(origin);
+          if (from.protocol === 'http:' && from.host === headers.get('host')) headers.set('origin', `http://127.0.0.1:${port}`);
+        } catch {}
+      }
       const result = await runtime.handle(new Request('http://127.0.0.1/local-rpc', {
-        method: request.method, headers: request.headers,
+        method: request.method, headers,
         ...(!['GET','HEAD'].includes(request.method) ? {body: Readable.toWeb(request), duplex: 'half'} : {})
       }));
       response.writeHead(result.status, Object.fromEntries(result.headers));

@@ -65,16 +65,46 @@ export function createActions({ rpc, render, requestGrant }) {
       await loadCampaigns(rpc);
       S.loading = false;
     },
-    async new() {
-      const res = await rpc.createCampaign({ draft: {} });
+    new() {
+      S.newName = "";
+      S.menuOpen = false;
+      setView("new");
+    },
+    async create() {
+      const title = S.newName.trim();
+      if (!title) return;
+      const res = await rpc.createCampaign({ title, draft: {} });
       if (!res?.ok) return refusal(res);
+      S.newName = "";
       await openDraft(rpc, res.campaign.id);
+    },
+    async duplicate(v) {
+      if (!v) return;
+      S.menuOpen = false;
+      const res = await rpc.getDraft({ id: v });
+      if (!res?.ok) return refusal(res);
+      const created = await rpc.createCampaign({ title: t(`${res.campaign.title} (copy)`, `${res.campaign.title}（複製）`), draft: res.campaign.draft });
+      if (!created?.ok) return refusal(created);
+      announce(t("Duplicated as a new draft", "已複製為新草稿"));
+      await openDraft(rpc, created.campaign.id);
+    },
+    menu() {
+      S.menuOpen = !S.menuOpen;
     },
     async open(v, el) {
       await openDraft(rpc, v);
     },
     step(v) {
-      S.step = +v;
+      S.step = Math.max(0, Math.min(2, +v));
+    },
+    "next-step"() {
+      S.step = Math.min(2, S.step + 1);
+    },
+    "prev-step"() {
+      S.step = Math.max(0, S.step - 1);
+    },
+    conflict() {
+      openConflict();
     },
     source(v) {
       if (S.edit) {
@@ -172,13 +202,15 @@ export function createActions({ rpc, render, requestGrant }) {
       closeDialog();
     },
     async test() {
-      if (!S.campaign) return;
+      if (!S.campaign || !S.testTo.trim()) return;
       S.busy = "test";
       render();
-      const res = await rpc.sendTest({ id: S.campaign.id, expectedRevision: S.campaign.revision });
+      const res = await rpc.sendTest({ id: S.campaign.id, expectedRevision: S.campaign.revision, to: S.testTo.trim() });
       S.busy = "";
       if (!res?.ok) return refusal(res);
-      announce(t("Test send filed — check your inbox", "測試傳送已提交——請查看收件匣"));
+      S.testSent = S.testTo.trim();
+      S.testTo = "";
+      announce(t("Test send filed — check your inbox", "測試發送已提交——請查看收件匣"));
       await refreshDraft();
     },
     "review-send"() {
@@ -317,6 +349,10 @@ export function createActions({ rpc, render, requestGrant }) {
     },
     "close-dialog"() {
       closeDialog();
+    },
+    "load-more"() {
+      // The facet lists every row already — nothing sits behind a cursor yet.
+      announce(t("All campaigns are shown", "所有活動已顯示"));
     }
   };
 }
