@@ -293,7 +293,7 @@ export class Gadget extends DurableObject {
       }
       const bad = unsupportedSectionTypes(input.draft?.sections);
       if (bad.length) {
-        return { ok: false, code: "unsupported_section", message: `Section type ${bad.map((b) => `"${b}"`).join(", ")} is not supported — sections are ${SECTION_TYPES.join(", ")}. Pasted HTML is refused until the send path can sanitize it.` };
+        return { ok: false, code: "unsupported_section", message: `Section type ${bad.map((b) => `"${b}"`).join(", ")} is not supported — sections are ${SECTION_TYPES.join(", ")}.` };
       }
       const draft = normalizeDraft(input.draft ?? {});
       const saved = this.storage.saveCampaignDraft({

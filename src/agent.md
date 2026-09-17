@@ -27,9 +27,8 @@ Each campaign is a row in the facet's own storage (`campaigns`), shaped by
 - `audience_exclusions` — `[{ kind: "account"|"campaign", id, label }]`.
 - `subject`, `preheader` — text.
 - `sections` — typed blocks: `heading`, `body`, `cta` (`cta_label` +
-  `cta_url`), `image` (`image_url`). These four are the whole content
-  model — a write naming `custom_html` or any other type is refused at the
-  draft boundary, because the send path cannot carry pasted markup safely.
+  `cta_url`), `image` (`image_url`), and `custom_html` (`html`) for
+  owner-pasted markup. Any other type is refused at the draft boundary.
 - `scheduled_for` — an ISO time, or empty for "send on approval".
 
 Edit a draft through `callGadgetMethod` with the command surface
@@ -42,13 +41,14 @@ The mutable boundary is enforced: `review_state`, `favcrm_campaign_id`,
 `estimate`, `delivery_stats`, `sender_status` and `approvals` are outcomes the
 domain service owns. No command you can send writes them.
 
-## No raw-HTML escape hatch
+## Pasted HTML is owner-authored, sandboxed
 
-Pasted markup — a whole exported email or a single block from
-Stripo/BEE/Mailchimp-style editors — has no section type to carry it: the
-send path has no parser-based sanitizer, so a `custom_html` write is refused
-at the draft boundary rather than silently dropped at send. Re-express the
-content as `heading`/`body`/`cta`/`image` sections. The platform still
+A `custom_html` section carries pasted markup verbatim — the same trust
+model as an ESP's code block. The canvas preview renders it only inside a
+`sandbox`ed iframe (no scripts, opaque origin), and the send path emits it
+as-is for the owner's own audience, behind the approval gate. Prefer typed
+sections when the content fits them — they are what the editor's move/
+remove and live preview handle best. The platform still
 appends sender identity, the legal footer and unsubscribe handling to every
 send; no section you write can remove them. Do not write merge tags; they do
 not render in this batch.

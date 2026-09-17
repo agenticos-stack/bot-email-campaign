@@ -18,21 +18,21 @@
  *    Eligibility is re-derived at send time by FavCRM's single funnel.
  * 3. `estimate`/`delivery_stats` are collections of {metric, value} rows so a
  *    declarative view can render them without a bespoke widget type.
- * 4. Sections are the four typed blocks in `EMAIL_CAMPAIGN_SECTION_TYPES`.
- *    `custom_html` — the paste-a-whole-email escape hatch — is REFUSED, not
- *    carried: the send path (`sectionsToHtml` in the campaigns domain
- *    service) has no parser-based sanitizer to make pasted markup safe, and
- *    a block the owner approved but the mirror silently drops is worse than
- *    no block. A write naming `type: "custom_html"` is refused at the draft
- *    boundary (`unsupported_section`); it can return when the host renderer
- *    carries a real sanitizer. The platform still appends sender identity,
- *    legal footer and unsubscribe on every send, which no section can remove.
+ * 4. Sections are the typed blocks in `EMAIL_CAMPAIGN_SECTION_TYPES`.
+ *    `custom_html` is the owner's paste-a-whole-email escape hatch: stored
+ *    verbatim, never executed by the gadget — canvas previews render it
+ *    inside a `sandbox`ed iframe (the sandbox is the boundary, not a
+ *    sanitizer), and the send path emits it as-is, the same trust model an
+ *    ESP's code block uses: owner-authored markup for their own customers,
+ *    with the approval gate ahead of it. Receiving clients strip active
+ *    content. The platform still appends sender identity, legal footer and
+ *    unsubscribe on every send, which no section can remove.
  */
 
 import { GADGET_DEFINITION_SCHEMA } from "@agenticos-dev/bot-contract";
 
 /** The section types a draft may carry — the union `sectionsToHtml` renders. */
-export const EMAIL_CAMPAIGN_SECTION_TYPES = ["heading", "body", "cta", "image"] as const;
+export const EMAIL_CAMPAIGN_SECTION_TYPES = ["heading", "body", "cta", "image", "custom_html"] as const;
 
 export const EMAIL_CAMPAIGN_DEFINITION = {
   schemaVersion: GADGET_DEFINITION_SCHEMA,
@@ -107,6 +107,7 @@ export const EMAIL_CAMPAIGN_DEFINITION = {
     "sections[].cta_label",
     "sections[].cta_url",
     "sections[].image_url",
+    "sections[].html",
     "scheduled_for"
   ],
 

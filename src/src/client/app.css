@@ -149,7 +149,7 @@ button svg { width: 16px; height: 16px; }
 .field { margin-bottom: 16px; }
 .field-label { display: block; margin-bottom: 8px; font-size: var(--t-label); font-weight: 500; }
 .field-label .req { color: var(--danger); margin-inline-start: 2px; }
-.field-hint { margin-top: 8px; font-size: var(--t-label); color: var(--ink-2); line-height: 1.55; }
+.field-hint { margin-top: 8px; margin-bottom: 12px; font-size: var(--t-label); color: var(--ink-2); line-height: 1.55; }
 .field-control {
   height: 42px; width: 100%; border-radius: var(--r-control); border: 1px solid var(--line);
   background: var(--surface); padding: 0 12px; font-size: var(--t-body);
@@ -160,6 +160,7 @@ button svg { width: 16px; height: 16px; }
 .field-control:focus { border-color: var(--ink); outline: 2px solid var(--ink); outline-offset: -1px; }
 .field-control:disabled { background: var(--surface-2); opacity: 0.65; }
 textarea.field-control { height: auto; min-height: 96px; padding: 11px 12px; resize: vertical; line-height: 1.6; }
+textarea.field-control.code { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12px; line-height: 1.55; min-height: 150px; white-space: pre; }
 .select-control {
   height: 42px; width: 100%; display: flex; align-items: center;
   border-radius: var(--r-control); border: 1px solid var(--line); background: var(--surface);
@@ -339,11 +340,10 @@ tr:hover .row-tools, tr:focus-within .row-tools, .row-tools:focus-within { opaci
 .chip .badge { padding: 1px 6px; }
 
 .dl { display: grid; gap: 0; }
-.dl > div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--line); }
-.dl > div:last-child { border-bottom: 0; }
+.dl > div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 7px 0; }
 .dl dt { font-size: var(--t-body); color: var(--ink-2); }
 .dl dd { font-size: var(--t-body); font-weight: 500; text-align: end; font-variant-numeric: tabular-nums; }
-.dl .dl-total { padding-top: 11px; margin-top: 3px; border-top: 1px solid var(--line-2); }
+.dl .dl-total { padding-top: 11px; margin-top: 6px; border-top: 1px solid var(--line-2); }
 .dl .dl-total dt { color: var(--ink); font-weight: 600; }
 .dl .dl-total dd { font-size: var(--t-title); font-weight: 650; }
 
@@ -369,16 +369,15 @@ tr:hover .row-tools, tr:focus-within .row-tools, .row-tools:focus-within { opaci
 .card--advisory .check-title { font-weight: 400; color: var(--ink-2); }
 
 /* ── content blocks editor ────────────────────────────────────────────── */
-.sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .sec-head .field-label { margin: 0; }
-.blocks { margin-top: 12px; }
 .section-block { border: 1px solid var(--line); border-radius: var(--r-control); background: var(--surface); }
 .section-block + .section-block { margin-top: 10px; }
 .section-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--line); }
 .bar-tools { display: flex; gap: 2px; }
 .section-body { padding: 12px; }
 .section-empty {
-  border: 1px dashed var(--line-2); border-radius: var(--r-control); margin-top: 12px;
+  border: 1px dashed var(--line-2); border-radius: var(--r-control);
   padding: 26px 16px; text-align: center; font-size: var(--t-body); color: var(--ink-2); background: var(--surface);
 }
 .addbar { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
@@ -401,6 +400,7 @@ tr:hover .row-tools, tr:focus-within .row-tools, .row-tools:focus-within { opaci
 .mail-inner h1 { font-size: 19px; font-weight: 700; letter-spacing: -0.01em; }
 .mail-inner p { margin-top: 9px; font-size: 13.5px; line-height: 1.65; color: #2b2b30; }
 .mail-inner .cta { display: inline-block; margin-top: 14px; background: var(--ink); color: #fff; padding: 9px 16px; border-radius: var(--r-control); font-size: 13px; font-weight: 600; text-decoration: none; }
+.mail-html { display: block; width: 100%; border: 0; min-height: 220px; background: #fff; border-radius: var(--r-token); margin-top: 12px; }
 .mail-inner hr { border: 0; border-top: 1px solid var(--line); margin: 20px 0 12px; }
 .mail-inner .foot { font-size: 11.5px; color: var(--ink-3); line-height: 1.6; }
 .mail-inner .foot .foot-link { text-decoration: underline; }

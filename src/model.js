@@ -13,7 +13,7 @@
 // The flat archive ships raw .js members only, so this file cannot import
 // `../definition.ts` — these constants are pinned to the definition's declared
 // values by `test/unit/definition-parity.test.ts`, which fails on drift.
-export const SECTION_TYPES = Object.freeze(["heading", "body", "cta", "image"]);
+export const SECTION_TYPES = Object.freeze(["heading", "body", "cta", "image", "custom_html"]);
 
 /** What `state_json`'s `mutable` allowlist permits — mirrored, never re-derived. */
 export const MUTABLE_PATHS = Object.freeze([
@@ -22,7 +22,7 @@ export const MUTABLE_PATHS = Object.freeze([
   "audience_exclusions", "audience_exclusions[].kind", "audience_exclusions[].id", "audience_exclusions[].label",
   "subject", "preheader",
   "sections", "sections[].type", "sections[].heading", "sections[].body",
-  "sections[].cta_label", "sections[].cta_url", "sections[].image_url",
+  "sections[].cta_label", "sections[].cta_url", "sections[].image_url", "sections[].html",
   "scheduled_for"
 ]);
 
@@ -41,6 +41,9 @@ const MAX_ACCOUNTS = 500;
 const MAX_EXCLUSIONS = 500;
 const MAX_SECTIONS = 40;
 const MAX_LABEL = 200;
+// A pasted full-email document can be large; the cap bounds the blob, not
+// its content — nothing here inspects markup.
+const MAX_CUSTOM_HTML = 200 * 1024;
 const EMAILISH = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ISOISH = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 
@@ -71,15 +74,16 @@ export function normalizeSection(input) {
     section.cta_url = cleanUrl(input.cta_url);
   }
   if (type === "image") section.image_url = cleanUrl(input.image_url);
+  // `custom_html` is stored verbatim — the boundary is the sandboxed preview
+  // iframe and the recipient's client, never a regex over markup.
+  if (type === "custom_html") section.html = cleanMultiline(input.html, MAX_CUSTOM_HTML);
   return section;
 }
 
 /**
- * The section types a write names that the draft cannot carry. `custom_html`
- * is the deliberate one — declared by earlier copies of this contract but
- * refused until the host renderer carries a real sanitizer; any other
- * undeclared type is refused here too rather than silently dropped, so an
- * agent learns the boundary instead of losing content to normalization.
+ * The section types a write names that the draft cannot carry. An undeclared
+ * type is refused rather than silently dropped, so an agent learns the
+ * boundary instead of losing content to normalization.
  */
 export function unsupportedSectionTypes(list) {
   if (!Array.isArray(list)) return [];
@@ -217,10 +221,6 @@ export function missingForSend(draft) {
 // `mutable` parity: the allowlist below mirrors the definition, and the
 // lifecycle lock mirrors `mutableWhen` — a draft whose review_state has left
 // the editable set is read-only here exactly as it is through `state_json`.
-// `custom_html` is refused outright: the host send path has no parser-based
-// sanitizer for pasted markup, so carrying it would mean a block the owner
-// approved but the FavCRM mirror drops. Refusal is the honest boundary until
-// one exists — covered in test/unit/model.test.ts.
 // ---------------------------------------------------------------------------
 
 /** The review states in which the draft's mutable surface is open — the
@@ -269,9 +269,9 @@ const COLLECTION_NORMALIZERS = {
 };
 
 /**
- * Refuse a `sections` write that names a type the draft cannot carry —
- * `custom_html` above all. The send path would render nothing for it, so
- * accepting the write would promise a block no send can deliver.
+ * Refuse a `sections` write that names a type the draft cannot carry. An
+ * undeclared type would render nothing on the send path, so accepting the
+ * write would promise a block no send can deliver.
  */
 function refusedSectionWrite(kind, path, command) {
   if (path !== "sections") return null;
@@ -283,7 +283,7 @@ function refusedSectionWrite(kind, path, command) {
   if (!bad.length) return null;
   return issue(
     "unsupported_section",
-    `Section type ${bad.map((b) => `"${b}"`).join(", ")} is not supported — sections are ${SECTION_TYPES.join(", ")}. Pasted HTML is refused until the send path can sanitize it.`
+    `Section type ${bad.map((b) => `"${b}"`).join(", ")} is not supported — sections are ${SECTION_TYPES.join(", ")}.`
   );
 }
 
@@ -373,10 +373,12 @@ export function draftToState(draft) {
  * Sections → preview HTML, the facet-side half of `sectionsToHtml`. The domain
  * service renders the canonical version host-side before the FavCRM mirror;
  * this exists for the canvas preview. One contract both sides keep: typed
- * fields are escaped into fixed tags, and anything the draft cannot carry —
- * `custom_html` included — never reaches the output. The gadget half is
- * covered by test/unit/model.test.ts; the host half by the API's
- * definition↔service continuity test.
+ * fields are escaped into fixed tags, and a `custom_html` block is emitted
+ * verbatim — owner-authored markup whose only safe display surface is a
+ * `sandbox`ed iframe (no scripts, opaque origin). Anything the draft cannot
+ * carry never reaches the output. The gadget half is covered by
+ * test/unit/model.test.ts; the host half by the API's definition↔service
+ * continuity test.
  */
 export function sectionsToHtml(sections) {
   const parts = [];
@@ -387,6 +389,7 @@ export function sectionsToHtml(sections) {
       parts.push(`<p><a href="${escapeHtml(section.cta_url)}">${escapeHtml(section.cta_label)}</a></p>`);
     }
     if (section.type === "image" && section.image_url) parts.push(`<img src="${escapeHtml(section.image_url)}" alt="">`);
+    if (section.type === "custom_html" && section.html) parts.push(section.html);
   }
   return parts.join("\n");
 }

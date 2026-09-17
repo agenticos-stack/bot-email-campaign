@@ -1,7 +1,7 @@
 // Node unit tests for the pure Email Campaign model. No network, no D1, no
 // facet — model.js has no I/O beyond the platform crypto API and the clock the
 // caller passes in. These pin the draft both the facet's `campaigns` row and
-// the `state_json` mirror agree on, plus the custom_html refusal boundary and
+// the `state_json` mirror agree on, plus the undeclared-section boundary and
 // the review-state lifecycle lock.
 import { describe, expect, it } from "vitest";
 import {
@@ -23,17 +23,24 @@ import {
 } from "../../src/model.js";
 
 describe("normalizeSection", () => {
-  it("keeps each declared type and drops everything else — custom_html included", () => {
-    for (const type of ["heading", "body", "cta", "image"]) {
+  it("keeps each declared type and drops everything else", () => {
+    for (const type of ["heading", "body", "cta", "image", "custom_html"]) {
       expect(normalizeSection({ type })?.type).toBe(type);
     }
-    expect(SECTION_TYPES).not.toContain("custom_html");
-    // Refused, not silently rendered: pasted markup is dropped like any other
-    // unknown type at normalization, and named at the write boundary below.
-    expect(normalizeSection({ type: "custom_html" })).toBeNull();
+    expect(SECTION_TYPES).toContain("custom_html");
+    // Undeclared types drop at normalization and are named at the write
+    // boundary below — the draft never carries what it cannot render.
     expect(normalizeSection({ type: "banner" })).toBeNull();
     expect(normalizeSection({ type: "script" })).toBeNull();
     expect(normalizeSection(null)).toBeNull();
+  });
+
+  it("carries custom_html verbatim — the sandboxed iframe is the boundary, not a sanitizer", () => {
+    const html = "<div><p>pasted <strong>markup</strong></p><script>alert(1)</script></div>";
+    const s = normalizeSection({ type: "custom_html", html });
+    expect(s?.html).toBe(html);
+    const long = normalizeSection({ type: "custom_html", html: `<p>${"x".repeat(210 * 1024)}</p>` });
+    expect(long?.html?.length).toBeLessThanOrEqual(200 * 1024);
   });
 
   it("assigns a stable id when none is given", () => {
@@ -70,27 +77,36 @@ describe("normalizeSections", () => {
   });
 });
 
-describe("unsupportedSectionTypes — the custom_html refusal boundary", () => {
-  it("names pasted markup and any other undeclared type", () => {
+describe("unsupportedSectionTypes — the undeclared-type boundary", () => {
+  it("names types the draft cannot carry; declared types pass", () => {
     expect(unsupportedSectionTypes([{ type: "body" }])).toEqual([]);
-    expect(unsupportedSectionTypes([{ type: "custom_html" }, { type: "body" }, { type: "raw" }])).toEqual([
-      "custom_html",
-      "raw"
-    ]);
+    expect(unsupportedSectionTypes([{ type: "custom_html" }, { type: "body" }])).toEqual([]);
+    expect(unsupportedSectionTypes([{ type: "raw" }, { type: "banner" }])).toEqual(["raw", "banner"]);
   });
 
-  it("a section write naming custom_html is refused, not carried", () => {
+  it("a section write naming an undeclared type is refused, not carried", () => {
+    const draft = normalizeDraft({ subject: "S" });
+    const r = applyCommandToDraft(draft, {
+      kind: "collection.add",
+      path: "sections",
+      item: { type: "raw", html: "<p>pasted</p>" }
+    });
+    expect(r.ok).toBe(false);
+    expect(r.issues?.[0].code).toBe("unsupported_section");
+    // The refusal names the supported set so the caller can re-ask honestly.
+    expect(r.issues?.[0].message).toContain("custom_html");
+    expect(r.draft?.sections ?? draft.sections).toEqual([]);
+  });
+
+  it("a section write naming custom_html is carried verbatim", () => {
     const draft = normalizeDraft({ subject: "S" });
     const r = applyCommandToDraft(draft, {
       kind: "collection.add",
       path: "sections",
       item: { type: "custom_html", html: "<p>pasted</p>" }
     });
-    expect(r.ok).toBe(false);
-    expect(r.issues?.[0].code).toBe("unsupported_section");
-    // The refusal names the supported set so the caller can re-ask honestly.
-    expect(r.issues?.[0].message).toContain("heading");
-    expect(r.draft?.sections ?? draft.sections).toEqual([]);
+    expect(r.ok).toBe(true);
+    expect(r.draft.sections.at(-1)).toMatchObject({ type: "custom_html", html: "<p>pasted</p>" });
   });
 });
 
@@ -265,7 +281,10 @@ describe("draftToState / sectionsToHtml", () => {
     expect(html).toContain("Line one<br>Line two");
     expect(html).toContain("https://x.test");
     expect(html).toContain("cdn.test/a.png");
-    // An unlisted type — custom_html or anything else — contributes nothing.
-    expect(sectionsToHtml([{ type: "custom_html", html: "<p>pasted</p>" }])).toBe("");
+    // custom_html is emitted verbatim — its only safe display surface is a
+    // sandboxed iframe or the recipient's client; an undeclared type renders
+    // nothing.
+    expect(sectionsToHtml([{ type: "custom_html", html: "<p>pasted</p>" }])).toBe("<p>pasted</p>");
+    expect(sectionsToHtml([{ type: "banner", body: "x" }])).toBe("");
   });
 });

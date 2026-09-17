@@ -143,7 +143,7 @@ export function createActions({ rpc, render, requestGrant }) {
     },
     "add-block"(v) {
       if (!S.edit) return;
-      S.edit.sections = [...S.edit.sections, { id: newId("s"), type: v, heading: t("New heading", "新標題"), body: "", cta_label: t("Learn more", "了解更多"), cta_url: "https://example.com", image_url: "" }];
+      S.edit.sections = [...S.edit.sections, { id: newId("s"), type: v, heading: t("New heading", "新標題"), body: "", cta_label: t("Learn more", "了解更多"), cta_url: "https://example.com", image_url: "", html: "" }];
     },
     "block-up"(v, el) {
       const id = el.dataset.id;

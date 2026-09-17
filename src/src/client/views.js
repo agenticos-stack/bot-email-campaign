@@ -46,7 +46,8 @@ const SECTION_META = {
   heading: ["Heading", "標題", "heading"],
   body: ["Body", "文字", "text"],
   cta: ["Button", "按鈕", "link"],
-  image: ["Image", "圖片", "image"]
+  image: ["Image", "圖片", "image"],
+  custom_html: ["HTML", "自訂 HTML", "code"]
 };
 
 const TILE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>`;
@@ -424,6 +425,7 @@ function blockEditor(s, i, count, locked) {
   else if (s.type === "body") body = `<textarea class="field-control" data-block="${esc(s.id)}" data-bf="body" data-key="blk-${esc(s.id)}-b" rows="4" placeholder="${t("Write this block's content…", "撰寫這一段的內容…")}" ${locked ? "disabled" : ""}>${esc(s.body)}</textarea>`;
   else if (s.type === "cta") body = `<input class="field-control" data-block="${esc(s.id)}" data-bf="cta_label" data-key="blk-${esc(s.id)}-l" value="${esc(s.cta_label)}" placeholder="${t("Button label", "按鈕文字")}" ${locked ? "disabled" : ""}><input class="field-control" style="margin-top:8px" data-block="${esc(s.id)}" data-bf="cta_url" data-key="blk-${esc(s.id)}-u" value="${esc(s.cta_url)}" placeholder="https://" ${locked ? "disabled" : ""}>`;
   else if (s.type === "image") body = `<input class="field-control" data-block="${esc(s.id)}" data-bf="image_url" data-key="blk-${esc(s.id)}-i" value="${esc(s.image_url)}" placeholder="${t("Image URL (https://…)", "圖片網址（https://…）")}" ${locked ? "disabled" : ""}>`;
+  else if (s.type === "custom_html") body = `<textarea class="field-control code" data-block="${esc(s.id)}" data-bf="html" data-key="blk-${esc(s.id)}-x" rows="8" placeholder="<!doctype html>…" ${locked ? "disabled" : ""}>${esc(s.html ?? "")}</textarea><p class="field-hint">${t("Sent as-is — the preview renders it in a sandbox, and inboxes strip scripts and forms.", "原樣發送——預覽於沙盒中顯示，收件匣會移除指令碼及表單。")}</p>`;
   return `<div class="section-block">
     <div class="section-bar">
       <span class="badge">${icon(meta[2])} ${t(meta[0], meta[1])}</span>
@@ -452,7 +454,6 @@ function contentStep() {
 
       <div>
         <div class="sec-head"><span class="field-label">${t("Email content blocks", "電郵內容區塊")}</span><span class="meta num">${d.sections.length} / ${SECTION_LIMIT}</span></div>
-        ${strip("info", `<span class="meta">${esc(t("Write for every reader — personalization tags are not supported yet.", "請為所有讀者撰寫 — 電郵暫不支援個人化標籤。"))}</span>`)}
         ${d.sections.length
           ? `<div class="blocks">${d.sections.map((s, i) => blockEditor(s, i, d.sections.length, locked)).join("")}</div>`
           : `<div class="section-empty">${t("No content blocks yet. Pick a type below to add one.", "尚未加入內容區塊。由下方選擇一種加入。")}</div>`}
@@ -485,7 +486,11 @@ function previewPane() {
                 ? `<p>${esc(s.body).replace(/\n/g, "<br>")}</p>`
                 : s.type === "cta"
                   ? `<a class="cta" href="#" onclick="return false">${esc(s.cta_label || t("Button", "按鈕"))}</a>`
-                  : `<div class="mail-img">${s.image_url ? `<img src="${esc(s.image_url)}" alt="">` : t("Image", "圖片")}</div>`
+                  : s.type === "custom_html"
+                    // The pasted markup only ever renders inside this empty
+                    // sandbox: no scripts, opaque origin, no session reach.
+                    ? `<iframe class="mail-html" title="${t("Pasted HTML preview", "貼上 HTML 預覽")}" sandbox referrerpolicy="no-referrer" srcdoc="${esc(s.html || "")}"></iframe>`
+                    : `<div class="mail-img">${s.image_url ? `<img src="${esc(s.image_url)}" alt="">` : t("Image", "圖片")}</div>`
           ).join("")
         : `<p class="empty-hint">${t("Add a heading or body block to see the email here.", "加入標題或內文區塊後，此處會顯示電郵預覽。")}</p>`}
         <hr>

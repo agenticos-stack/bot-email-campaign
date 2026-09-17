@@ -25,7 +25,7 @@ imports between these files resolved by the runtime itself.
 | `storage.js` | The SQLite adapter `server.js` uses — the one place table names and columns are named. |
 | `config.js` | Instance configuration: display defaults and estimate policy. |
 | `doors.js` | Every door call in one place — a contract change on a door touches this file, not every method that happens to use it. |
-| `model.js` | Pure functions with no I/O: draft normalization, the `mutable` allowlist, the `mutableWhen` lifecycle lock, the `custom_html` refusal boundary, command application. Unit-testable outside the runtime. |
+| `model.js` | Pure functions with no I/O: draft normalization, the `mutable` allowlist, the `mutableWhen` lifecycle lock, the undeclared-section boundary, command application. Unit-testable outside the runtime. |
 | `grant-request.js` | The `gadget:grant-door` / `gadget:activate-door` / `gadget:grant-result` / `gadget:doors-changed` postMessage contract between the sandboxed canvas and its host. |
 | `agent.md` | Working instructions for the agent that drafts and proposes here. |
 | `README.md` | This file. |
@@ -61,17 +61,19 @@ campaigns routes, so the journeys exercise the real domain service.
 
 ## The sections model
 
-Content is typed blocks — `heading`, `body`, `cta`, `image` — and nothing
-else. There is no raw-HTML escape hatch: pasted markup (a whole exported
-email from Stripo/BEE/Mailchimp-style editors, or a single block) is refused
-at the draft write boundary with `unsupported_section`, because neither the
-gadget runtime nor the host send path has a parser-based sanitizer to carry
-it safely. The platform still appends sender identity, the legal footer and
-unsubscribe handling on every send; the editor cannot remove them.
+Content is typed blocks — `heading`, `body`, `cta`, `image` — plus
+`custom_html` for owner-pasted markup (a whole exported email from
+Stripo/BEE/Mailchimp-style editors, or a single block). `custom_html` is
+stored verbatim: the canvas preview renders it inside a `sandbox`ed iframe
+and the send path emits it as-is — owner-authored markup for the owner's own
+audience, behind the approval gate. Any undeclared type is refused at the
+draft write boundary with `unsupported_section`. The platform still appends
+sender identity, the legal footer and unsubscribe handling on every send;
+the editor cannot remove them.
 
 ## Testing
 
 `pnpm build` packs the archive and `pnpm validate` checks it; `pnpm test`
 runs the host (tsx) and unit (vitest) suites — command surface, proposal
-accept/reject, the `custom_html` refusal boundary and the `mutableWhen`
+accept/reject, the `custom_html` carry-through and the `mutableWhen`
 lifecycle lock are covered.
