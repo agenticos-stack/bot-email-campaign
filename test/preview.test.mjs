@@ -20,13 +20,14 @@ test("served preview includes the required mount before loading the real client"
     env: { ...process.env, EMAIL_CAMPAIGN_PREVIEW_PORT: String(port) },
     stdio: ["ignore", "pipe", "pipe"]
   });
-  let timer;
+  let timer, errors = "";
+  child.stderr.on("data", (chunk) => (errors += chunk));
   const exited = once(child, "exit");
   try {
     await Promise.race([
       once(child.stdout, "data"),
-      exited.then(() => { throw new Error("Preview exited before listening"); }),
-      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Preview startup timed out")), 5000); })
+      exited.then(() => { throw new Error("Preview exited before listening; stderr: " + errors); }),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Preview startup timed out; stderr: " + errors)), 5000); })
     ]);
     const shell = await fetch(`http://127.0.0.1:${port}/`);
     const shellHtml = await shell.text();
