@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createConnectedApi} from '../scripts/connected-api.mjs';
-import { refuse } from '../scripts/door-certainty.mjs';
+import { refuse } from '@agenticos-dev/bot-devkit/doors';
 const frontendOrigin='http://email.localhost:18000';
 test('a large draft write passes the connected BFF without increasing the agent-message budget',async()=>{
   // A large section payload travels the gadget RPC route's larger bound,

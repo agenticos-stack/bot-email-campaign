@@ -83,11 +83,11 @@ const STABLE_LABELS = {
   recheck: () => t("Check status", "檢查狀態"),
   "confirm-send": () => t("Approve & send", "核准並傳送")
 };
-const button = (action, label, opts) => botButton(action, label, { ...opts, stableLabel: STABLE_LABELS[action]?.() ?? "" });
+const campaignButton = (action, label, opts) => botButton(action, label, { ...opts, stableLabel: STABLE_LABELS[action]?.() ?? "" });
 
 // The dismiss button's aria-label is this canvas's localized copy — the
 // shared shell carries no strings of its own.
-const dialogShell = (title, desc, body, foot, opts) =>
+const campaignDialogShell = (title, desc, body, foot, opts) =>
   botDialogShell(title, desc, body, foot, { closeLabel: t("Close", "關閉"), ...opts });
 
 /** Section type → [en, zh] + icon, for the block bar and the add-block row. */
@@ -188,13 +188,13 @@ function pageHead({ title, badgeHtml = "", sub = "", meta = "", actions = "" }) 
 function senderStrip() {
   if (S.senderError) {
     // A refused read is shown as itself — "could not check", never "not set".
-    return `<div class="strip"><span class="strip-icon warn">${icon(ICON_ALERT)}</span><span class="strip-text">${esc(t(`The sender could not be checked — ${S.senderError}`, `無法檢查寄件者——${S.senderError}`))}</span>${button("sender", t("Set up sender", "設定寄件者"), { kind: "secondary", key: "strip-sender" })}</div>`;
+    return `<div class="strip"><span class="strip-icon warn">${icon(ICON_ALERT)}</span><span class="strip-text">${esc(t(`The sender could not be checked — ${S.senderError}`, `無法檢查寄件者——${S.senderError}`))}</span>${campaignButton("sender", t("Set up sender", "設定寄件者"), { kind: "secondary", key: "strip-sender" })}</div>`;
   }
   if (S.sender?.connected && S.sender?.from_email) {
     return strip(ICON_MAIL, esc(t(`Sending as ${S.sender.from_email}`, `寄件者 ${S.sender.from_email} 已驗證`)),
-      button("sender", t("Manage", "管理"), { kind: "quiet", key: "strip-sender" }));
+      campaignButton("sender", t("Manage", "管理"), { kind: "quiet", key: "strip-sender" }));
   }
-  return `<div class="strip"><span class="strip-icon warn">${icon(ICON_ALERT)}</span><span class="strip-text">${esc(t("No verified email sender yet. Sending is blocked until one is verified.", "尚未設定電郵寄件者。完成驗證後才可發送。"))}</span>${button("sender", t("Set up sender", "設定寄件者"), { kind: "secondary", key: "strip-sender" })}</div>`;
+  return `<div class="strip"><span class="strip-icon warn">${icon(ICON_ALERT)}</span><span class="strip-text">${esc(t("No verified email sender yet. Sending is blocked until one is verified.", "尚未設定電郵寄件者。完成驗證後才可發送。"))}</span>${campaignButton("sender", t("Set up sender", "設定寄件者"), { kind: "secondary", key: "strip-sender" })}</div>`;
 }
 
 // --------------------------------------------------------------- list view
@@ -256,7 +256,7 @@ function listView() {
     ? `<div class="empty">
         <span class="tile">${TILE}</span>
         <div><h3>${t("No campaigns yet", "未有推廣活動")}</h3><p>${t("Create your first campaign to email customers who have opted in.", "建立第一個活動，向已同意接收的客戶發送電郵。")}</p>
-          <div style="margin-top:12px">${button("new", t("New campaign", "新增活動"), { kind: "secondary", ic: ICON_PLUS, key: "empty-new" })}</div>
+          <div style="margin-top:12px">${campaignButton("new", t("New campaign", "新增活動"), { kind: "secondary", ic: ICON_PLUS, key: "empty-new" })}</div>
         </div>
       </div>`
     : `<table class="table">
@@ -274,7 +274,7 @@ function listView() {
   return `<div class="gadget">${pageHead({
     title: t("Campaigns", "推廣活動"),
     sub: t("Send bulk email to your customers — drafted, reviewed and sent through the connected CRM.", "向客戶發送批量電郵 — 經由已連接的 CRM 草擬、審閱及發送。"),
-    actions: button("new", t("New campaign", "新增活動"), { kind: "brand", ic: ICON_PLUS, key: "new", disabled: S.readOnly })
+    actions: campaignButton("new", t("New campaign", "新增活動"), { kind: "brand", ic: ICON_PLUS, key: "new", disabled: S.readOnly })
   })}
   ${senderStrip()}
   <section class="card">
@@ -311,8 +311,8 @@ function newView() {
     <div class="card"><div class="card-body">
       ${field("newName", t("Campaign name", "活動名稱"), S.newName, { placeholder: t("October member update", "十月會員快訊"), hint: t("Internal name. Customers never see it.", "內部名稱，客戶不會看到。"), required: true })}
       <div class="step-actions">
-        ${button("create", t("Create campaign", "建立活動"), { kind: "primary", key: "create", disabled: !S.newName.trim() || S.readOnly })}
-        ${button("list", t("Cancel", "取消"), { kind: "quiet", key: "new-cancel" })}
+        ${campaignButton("create", t("Create campaign", "建立活動"), { kind: "primary", key: "create", disabled: !S.newName.trim() || S.readOnly })}
+        ${campaignButton("list", t("Cancel", "取消"), { kind: "quiet", key: "new-cancel" })}
       </div>
     </div></div>
     <aside class="card card--advisory"><div class="card-body">
@@ -339,7 +339,7 @@ function editorHead() {
     title: c?.title || t("Untitled campaign", "未命名活動"),
     badgeHtml: stateBadge(c),
     meta: `${t(`Revision ${c?.revision ?? 0}`, `修訂版 ${c?.revision ?? 0}`)} · <span class="${dirty() ? "" : "ok-text"}">${esc(savedNote)}</span> · ${t("Updated", "更新")} ${esc(when(c?.updatedAt))}`,
-    actions: `${button("save", S.busy === "save" ? t("Saving…", "儲存中…") : t("Save draft", "儲存草稿"), { kind: "secondary", key: "save", disabled: !dirty() || readOnly() || busy(), extra: S.busy === "save" ? 'aria-busy="true"' : "" })}
+    actions: `${campaignButton("save", S.busy === "save" ? t("Saving…", "儲存中…") : t("Save draft", "儲存草稿"), { kind: "secondary", key: "save", disabled: !dirty() || readOnly() || busy(), extra: S.busy === "save" ? 'aria-busy="true"' : "" })}
       <span class="overflow">${iconBtn("menu", t("More actions", "更多操作"), ICON_DOTS, { key: "menu" })}
         <span class="menu" role="menu"${S.menuOpen ? "" : " hidden"}>
           <button class="btn quiet" type="button" role="menuitem" data-action="duplicate" data-id="${esc(c?.id ?? "")}" data-key="menu-dup">${icon(ICON_COPY)}${t("Duplicate", "複製")}</button>
@@ -358,24 +358,24 @@ function notices() {
   }
   if (unresolved()) {
     out.push(strip(ICON_ALERT, `<strong>${esc(t("A send is awaiting confirmation", "一項傳送正在等待確認"))}</strong><br><span class="faint">${esc(t("Keep this draft unchanged until the delivery status is confirmed.", "請待傳送狀態確認後，再修改此草稿。"))}</span>`,
-      button("recheck", t("Check status", "檢查狀態"), { kind: "secondary", key: "recheck" }), "warn"));
+      campaignButton("recheck", t("Check status", "檢查狀態"), { kind: "secondary", key: "recheck" }), "warn"));
   }
   if (S.edit?.unresolved && !dirty()) {
     out.push(strip(ICON_ALERT, `<strong>${esc(t("The stored draft was edited elsewhere", "此草稿曾於其他地方修改"))}</strong><br><span class="faint">${esc(t("Some proposed changes could not be applied. Resolve them, then continue editing.", "部分變更未能套用。請先處理衝突，然後繼續編輯。"))}</span>`,
-      button("conflict", t("Resolve", "處理衝突"), { kind: "secondary", key: "conflict" }), "danger"));
+      campaignButton("conflict", t("Resolve", "處理衝突"), { kind: "secondary", key: "conflict" }), "danger"));
   }
   if (!readOnly() && c.status === "approved" && c.draft?.scheduled_for) {
     out.push(strip(ICON_CLOCK, `<strong>${esc(t(`Scheduled for ${formatSchedule(c.draft.scheduled_for)}`, `已排程於 ${formatSchedule(c.draft.scheduled_for)} 發送`))}</strong><br><span class="faint">${esc(t("The scheduled send is bound to the saved revision.", "排程以已儲存的修訂版本為準。"))}</span>`,
-      button("schedule", t("Manage schedule", "管理排程"), { kind: "quiet", key: "sched-notice" })));
+      campaignButton("schedule", t("Manage schedule", "管理排程"), { kind: "quiet", key: "sched-notice" })));
   }
   if (c.status === "queued" && !S.op) {
     out.push(strip(ICON_CLOCK, `<strong>${esc(t("Send is queued", "發送已加入佇列"))}</strong><br><span class="faint">${esc(t("The undo window is still open — the send may already have committed upstream.", "撤回期限仍未結束，上游可能已經開始發送。"))}</span>`,
-      button("undo", t("Undo send", "撤回傳送"), { kind: "secondary", key: "undo" }), "warn"));
+      campaignButton("undo", t("Undo send", "撤回傳送"), { kind: "secondary", key: "undo" }), "warn"));
   }
   if (c.outcome?.undo_until) {
     const left = Math.max(0, Math.round((new Date(c.outcome.undo_until).getTime() - Date.now()) / 1000));
     if (left > 0) out.push(strip(ICON_CHECK, `<strong>${esc(t(`Sent — ${left}s left to undo`, `已發送 — 撤回期限尚餘 ${left} 秒`))}</strong>`,
-      button("undo", t("Undo send", "撤回發送"), { kind: "secondary", key: "undo-sent", disabled: busy() }), "ok"));
+      campaignButton("undo", t("Undo send", "撤回發送"), { kind: "secondary", key: "undo-sent", disabled: busy() }), "ok"));
   }
   return out.join("");
 }
@@ -385,7 +385,7 @@ function proposalsStrip() {
   if (!open.length) return "";
   const p = open[open.length - 1];
   return strip(ICON_SPARK, `<strong>${esc(t(`Assistant proposal · revision ${p.base_revision ?? "—"}`, `助理建議 · 修訂版本 ${p.base_revision ?? "—"}`))}</strong><br><span class="faint">${esc(p.rationale || t("Changes pending review", "變更待檢閱"))}</span>`,
-    button("proposal", t("Review", "檢閱"), { kind: "secondary", key: `prop-${p.id ?? "0"}` }));
+    campaignButton("proposal", t("Review", "檢閱"), { kind: "secondary", key: `prop-${p.id ?? "0"}` }));
 }
 
 // --- audience step ----------------------------------------------------------
@@ -434,7 +434,7 @@ function audienceStep() {
     <aside class="rail">
       <section class="card">
         <div class="card-head"><h3>${t("Estimated reach", "預計覆蓋")}</h3>
-          ${capOk("favcrm_connector") ? button("estimate", S.busy === "estimate" ? t("Measuring…", "計算中…") : t("Recalculate", "重新預估"), { kind: "secondary", ic: ICON_REFRESH, key: "estimate", disabled: locked, extra: S.busy === "estimate" ? 'aria-busy="true"' : "" }) : ""}</div>
+          ${capOk("favcrm_connector") ? campaignButton("estimate", S.busy === "estimate" ? t("Measuring…", "計算中…") : t("Recalculate", "重新預估"), { kind: "secondary", ic: ICON_REFRESH, key: "estimate", disabled: locked, extra: S.busy === "estimate" ? 'aria-busy="true"' : "" }) : ""}</div>
         <div class="card-body">${estimateBody()}</div>
         <div class="card-foot">${t("Consent and opt-outs are counted by the CRM.", "同意及退訂狀態由 CRM 統計。")}</div>
       </section>
@@ -506,7 +506,7 @@ function contentStep() {
         ${d.sections.length
           ? `<div class="blocks">${d.sections.map((s, i) => blockEditor(s, i, d.sections.length, locked)).join("")}</div>`
           : `<div class="section-empty">${t("No content blocks yet. Pick a type below to add one.", "尚未加入內容區塊。由下方選擇一種加入。")}</div>`}
-        <div class="addbar">${Object.keys(SECTION_META).map((k) => button("add-block", t(SECTION_META[k][0], SECTION_META[k][1]), { kind: "secondary", ic: ICON_PLUS, value: k, key: `add-${k}`, disabled: locked || atLimit })).join("")}</div>
+        <div class="addbar">${Object.keys(SECTION_META).map((k) => campaignButton("add-block", t(SECTION_META[k][0], SECTION_META[k][1]), { kind: "secondary", ic: ICON_PLUS, value: k, key: `add-${k}`, disabled: locked || atLimit })).join("")}</div>
       </div>
     </div>
 
@@ -694,7 +694,7 @@ function reviewStep() {
         <div class="card-body">
           <p class="field-hint">${t("Goes to you or a colleague — never to customers.", "寄給自己或同事 — 不會寄給客戶。")}</p>
           <input class="field-control" type="email" data-field="testTo" data-key="test-to" value="${esc(S.testTo)}" placeholder="you@example.com" ${locked ? "disabled" : ""}>
-          <div class="step-actions">${button("test", S.busy === "test" ? t("Sending…", "發送中…") : t("Send test", "發送測試"), { kind: "secondary", ic: ICON_SEND, key: "test", disabled: locked || busy() || !S.testTo.trim() || !capOk("email_sender") || !capOk("favcrm_connector") })}</div>
+          <div class="step-actions">${campaignButton("test", S.busy === "test" ? t("Sending…", "發送中…") : t("Send test", "發送測試"), { kind: "secondary", ic: ICON_SEND, key: "test", disabled: locked || busy() || !S.testTo.trim() || !capOk("email_sender") || !capOk("favcrm_connector") })}</div>
           ${S.testSent ? `<p class="field-hint ok-text">${esc(t(`Test email sent to ${S.testSent}.`, `測試電郵已寄至 ${S.testSent}。`))}</p>` : ""}
         </div>
       </section>
@@ -708,7 +708,7 @@ function reviewStep() {
           </div>
           ${isScheduled ? `<div class="sub-field"><label class="field-label" for="sched">${t("Schedule for later", "排程稍後發送")}</label><input id="sched" class="field-control" type="datetime-local" data-field="schedule" data-key="sched" value="${esc(d.scheduled_for)}" ${locked || !capOk("schedule") ? "disabled" : ""}></div>` : ""}
           ${!capOk("schedule") ? `<p class="meta">${t("Scheduling is a door this workspace has not granted — sends stay on approval only.", "此工作區尚未授予排程功能——發送僅限核准後立即執行。")}</p>` : ""}
-          <div class="step-actions">${button("review-send", isScheduled ? t("Approve & schedule", "核准並排程") : t("Approve & send", "審批並發送"), { kind: "primary", ic: ICON_CHECK, key: "send", disabled: !sendable })}</div>
+          <div class="step-actions">${campaignButton("review-send", isScheduled ? t("Approve & schedule", "核准並排程") : t("Approve & send", "審批並發送"), { kind: "primary", ic: ICON_CHECK, key: "send", disabled: !sendable })}</div>
           ${sendable ? "" : `<p class="blocked">${icon(ICON_ALERT)}<span>${esc(dirty() ? t("Save first — approval binds a saved revision, not your open edits.", "請先儲存——核准綁定已儲存的版本，而非未儲存的修改。") : t(`${nBlocked} required item${nBlocked === 1 ? "" : "s"} still outstanding.`, `仍有 ${nBlocked} 項必須完成的項目。`))}</span></p>`}
         </div>
       </section>
@@ -732,7 +732,7 @@ function sentView() {
         <div class="grow">
           <h2 class="sent-title">${t("Sent", "已發送")}</h2>
           <p class="field-hint">${esc(t(`On its way to ${stats?.sent ?? recipientsOf(c)} recipients. Delivery numbers update shortly.`, `正在寄給 ${stats?.sent ?? recipientsOf(c)} 位收件者。送達數字會在稍後更新。`))}</p>
-          ${undoLeft > 0 ? `<div class="undo-row">${button("undo", t("Undo send", "撤回發送"), { kind: "danger", key: "undo-sent", disabled: busy() })}<span class="meta undo-left">${icon(ICON_CLOCK)}${esc(t(`${undoLeft}s left`, `尚餘 ${undoLeft} 秒`))}</span></div>` : ""}
+          ${undoLeft > 0 ? `<div class="undo-row">${campaignButton("undo", t("Undo send", "撤回發送"), { kind: "danger", key: "undo-sent", disabled: busy() })}<span class="meta undo-left">${icon(ICON_CLOCK)}${esc(t(`${undoLeft}s left`, `尚餘 ${undoLeft} 秒`))}</span></div>` : ""}
         </div>
       </div></section>
       ${stats ? `<section class="card"><div class="card-head"><h3>${t("Delivery", "發送情況")}</h3></div>
@@ -742,7 +742,7 @@ function sentView() {
           ${stats.failed ? dlRow(t("Failed", "失敗"), `<span class="danger-text">${number(stats.failed)}</span>`) : ""}
           ${stats.bounced ? dlRow(t("Bounced", "退信"), `<span class="danger-text">${number(stats.bounced)}</span>`) : ""}
         </dl></div></section>` : ""}
-      <div>${button("list", t("Back to campaigns", "返回活動列表"), { kind: "quiet", ic: ICON_BACK, key: "sent-back" })}</div>
+      <div>${campaignButton("list", t("Back to campaigns", "返回活動列表"), { kind: "quiet", ic: ICON_BACK, key: "sent-back" })}</div>
     </div>
     <aside class="rail">${previewPane()}</aside>
   </div>`;
@@ -758,8 +758,8 @@ function editorView() {
   ${stepper(S.step)}
   ${steps[S.step]()}
   <div class="step-actions">
-    ${button(last ? "list" : "next-step", last ? t("Back to campaigns", "返回活動列表") : t("Continue", "繼續"), { kind: last ? "quiet" : "primary", ic: last ? "back" : "chev", key: "next" })}
-    ${S.step > 0 ? button("prev-step", t("Back", "返回"), { kind: "quiet", key: "prev" }) : ""}
+    ${campaignButton(last ? "list" : "next-step", last ? t("Back to campaigns", "返回活動列表") : t("Continue", "繼續"), { kind: last ? "quiet" : "primary", ic: last ? "back" : "chev", key: "next" })}
+    ${S.step > 0 ? campaignButton("prev-step", t("Back", "返回"), { kind: "quiet", key: "prev" }) : ""}
   </div></div>`;
 }
 
@@ -767,7 +767,7 @@ function editorView() {
 
 function setupView() {
   const row = (key, ic, title, body, action, label) =>
-    `<div class="check check--${capOk(key) ? "ok" : "block"}"><span class="check-mark">${icon(capOk(key) ? "check" : ic)}</span><div class="check-body"><div class="check-title">${title}</div><div class="check-why">${body}</div></div>${capOk(key) ? badge(t("Granted", "已授權"), "success") : button(action, label, { kind: "secondary", key: "setup-" + action })}</div>`;
+    `<div class="check check--${capOk(key) ? "ok" : "block"}"><span class="check-mark">${icon(capOk(key) ? "check" : ic)}</span><div class="check-body"><div class="check-title">${title}</div><div class="check-why">${body}</div></div>${capOk(key) ? badge(t("Granted", "已授權"), "success") : campaignButton(action, label, { kind: "secondary", key: "setup-" + action })}</div>`;
   return `<div class="gadget">${pageHead({
     title: t("Set up Email Campaigns", "設定電郵活動"),
     sub: t("These capabilities connect this bot to your workspace. You can grant them now or later — drafting works either way; only sending waits on them.", "連接這些功能即可使用此機械人。您可以現在或稍後授權——草擬不受影響，只有傳送需要授權。")
@@ -778,7 +778,7 @@ function setupView() {
     ${row("email_sender", "mail", t("Sender identity", "寄件者身分"), t("The verified address campaigns are sent from, via your email provider.", "活動使用的已驗證寄件地址，經您的電郵服務商發出。"), "sender", t("Set up sender", "設定寄件者"))}
     ${row("workspace", "bell", t("Workspace notifications", "工作區通知"), t("Tells you when a send finishes, fails, or needs a decision. Optional.", "傳送完成、失敗或需要您決定時通知您。可選。"), "grant-workspace", t("Allow notifications", "允許通知"))}
   </div></div></section>
-  <div class="step-actions">${button("enter", t("Continue to campaigns", "前往活動列表"), { kind: "primary", key: "enter" })}</div></div>`;
+  <div class="step-actions">${campaignButton("enter", t("Continue to campaigns", "前往活動列表"), { kind: "primary", key: "enter" })}</div></div>`;
 }
 
 // ----------------------------------------------------- loading / error
@@ -815,7 +815,7 @@ function errorView() {
   <div class="strip strip--danger" role="alert"><span class="strip-icon">${icon(ICON_ALERT)}</span>
     <span class="strip-text"><strong>${t("Could not load campaigns.", "未能載入推廣活動。")}</strong><br>
       <span class="refusal">${esc(S.loadError || t("The response was lost — retry, or check back shortly.", "回應遺失。請重試，或稍後再檢查。"))}</span></span>
-    ${button("retry", t("Retry", "重試"), { kind: "secondary", ic: ICON_REFRESH, key: "retry" })}
+    ${campaignButton("retry", t("Retry", "重試"), { kind: "secondary", ic: ICON_REFRESH, key: "retry" })}
   </div></div>`;
 }
 
@@ -841,22 +841,22 @@ export function openGrant(key = S.grantKey) {
     workspace: ["Workspace", "工作區", "Read-only access to workspace metadata — names, not content.", "對工作區元數據的唯讀存取 — 只限名稱。"]
   };
   const [en, zh, enBody, zhBody] = names[key] ?? [key, key, "", ""];
-  dialogShell(
+  campaignDialogShell(
     t(`Grant ${en}`, `授權${zh}`),
     t("The platform owns this grant — the gadget only sees the outcome.", "授權由平台管理，小工具只會得知結果。"),
     `<p>${esc(t(enBody, zhBody))}</p>`,
-    `${button("deny", t("Cancel", "取消"), { kind: "quiet", key: "grant-deny" })}${button("grant", t("Grant access", "授權"), { kind: "primary", key: "grant-ok" })}`
+    `${campaignButton("deny", t("Cancel", "取消"), { kind: "quiet", key: "grant-deny" })}${campaignButton("grant", t("Grant access", "授權"), { kind: "primary", key: "grant-ok" })}`
   );
 }
 
 export function openSender() {
-  dialogShell(
+  campaignDialogShell(
     t("Set up sender", "設定寄件者"),
     t("Verification happens with the provider — the gadget stores the outcome, not credentials.", "驗證在服務商一方完成，小工具只保存結果，不保存憑證。"),
     `${field("sender-name", t("From name", "寄件者名稱"), S.sender?.from_name ?? "", { placeholder: t("Essential Foods HK", "九龍工作室會員組") })}
      ${field("sender-from", t("From address", "寄件地址"), S.sender?.from_email ?? "", { type: "email", placeholder: "hello@example.com" })}
      <div class="field"><label class="field-label" for="provider">${t("Provider", "服務供應商")}</label><select id="provider" class="select-control" data-field="provider" data-key="provider">${[["resend", "Resend"], ["ses", "Amazon SES"], ["smtp", "SMTP"]].map(([v, l]) => `<option value="${v}"${S.provider === v ? " selected" : ""}>${l}</option>`).join("")}</select></div>`,
-    `${button("close-dialog", t("Cancel", "取消"), { kind: "quiet", key: "sender-cancel" })}${button("connect-sender", t("Verify & save", "驗證並儲存"), { kind: "primary", ic: ICON_CHECK, key: "sender-ok" })}`
+    `${campaignButton("close-dialog", t("Cancel", "取消"), { kind: "quiet", key: "sender-cancel" })}${campaignButton("connect-sender", t("Verify & save", "驗證並儲存"), { kind: "primary", ic: ICON_CHECK, key: "sender-ok" })}`
   );
 }
 
@@ -869,18 +869,18 @@ export function openProposal() {
   const stagedHtml = staged.length
     ? `<div class="fact-staged"><p class="field-label">${t(`Pasted HTML this proposal adds — ${staged.length} block${staged.length === 1 ? "" : "s"}`, `此提案加入的貼上 HTML——${staged.length} 個區塊`)}</p>${staged.map((s, i) => htmlFactRows(s, i + 1, t("in this proposal", "此提案包含"))).join("")}</div>`
     : "";
-  dialogShell(
+  campaignDialogShell(
     t("Assistant proposal", "助理建議"),
     t(`Base revision ${p.base_revision ?? "—"}`, `基礎修訂版本 ${p.base_revision ?? "—"}`),
     `<p>${esc(p.rationale || t("Changes pending review", "變更待檢閱"))}</p><p class="field-hint">${esc(t("Accepting applies the assistant's changes on top of your saved draft. Rejecting discards them.", "接受會將助理的變更套用於已儲存的草稿；拒絕則捨棄變更。"))}</p>${stagedHtml}`,
-    `${button("dismiss-proposal", t("Reject", "拒絕"), { kind: "quiet", key: "prop-no" })}${button("accept-proposal", t("Accept", "接受"), { kind: "primary", key: "prop-yes" })}`
+    `${campaignButton("dismiss-proposal", t("Reject", "拒絕"), { kind: "quiet", key: "prop-no" })}${campaignButton("accept-proposal", t("Accept", "接受"), { kind: "primary", key: "prop-yes" })}`
   );
 }
 
 export function openConfirm() {
   const isScheduled = Boolean(S.edit?.scheduled_for);
   const d = S.edit ?? {};
-  dialogShell(
+  campaignDialogShell(
     isScheduled ? t("Approve & schedule", "核准並排程") : t("Approve & send", "審批並發送"),
     t("Approval binds this exact revision — any later edit needs a fresh approval.", "核准將綁定此版本——其後修改需重新核准。"),
     `<dl class="dl">
@@ -888,26 +888,26 @@ export function openConfirm() {
       ${dlRow(t("Audience", "受眾"), esc(capOk("favcrm_connector") ? sourceLabel(d) : t("Unresolved — no CRM", "未解析 — 無 CRM")))}
       ${dlRow(t("Timing", "時間"), isScheduled ? esc(formatSchedule(d.scheduled_for)) : t("On approval", "核准後"))}
     </dl>${htmlFactsSummary(d)}`,
-    `${button("close-dialog", t("Cancel", "取消"), { kind: "quiet", key: "send-cancel" })}${button("confirm-send", isScheduled ? t("Approve & schedule", "核准並排程") : t("Approve & send", "審批並發送"), { kind: "primary", ic: ICON_CHECK, key: "send-ok" })}`
+    `${campaignButton("close-dialog", t("Cancel", "取消"), { kind: "quiet", key: "send-cancel" })}${campaignButton("confirm-send", isScheduled ? t("Approve & schedule", "核准並排程") : t("Approve & send", "審批並發送"), { kind: "primary", ic: ICON_CHECK, key: "send-ok" })}`
   );
 }
 
 export function openConflict() {
-  dialogShell(
+  campaignDialogShell(
     t("Resolve conflict", "處理衝突"),
     t("The stored draft was edited elsewhere. Choose whose version becomes the working copy.", "此草稿曾於其他地方修改。請選擇以哪個版本作為編輯基礎。"),
     `<label class="choice"><input type="radio" name="conflict" data-field="conflictChoice" value="mine"${S.conflictChoice === "mine" ? " checked" : ""}><span class="choice-title">${t("Keep mine — overwrite the stored draft", "保留我的版本 — 覆寫已儲存的草稿")}</span></label>
      <label class="choice"><input type="radio" name="conflict" data-field="conflictChoice" value="theirs"${S.conflictChoice === "theirs" ? " checked" : ""}><span class="choice-title">${t("Take theirs — discard my edits", "採用對方版本 — 捨棄我的修改")}</span></label>`,
-    `${button("close-dialog", t("Cancel", "取消"), { kind: "quiet", key: "conflict-cancel" })}${button("resolve-conflict", t("Apply", "套用"), { kind: "primary", key: "conflict-ok" })}`
+    `${campaignButton("close-dialog", t("Cancel", "取消"), { kind: "quiet", key: "conflict-cancel" })}${campaignButton("resolve-conflict", t("Apply", "套用"), { kind: "primary", key: "conflict-ok" })}`
   );
 }
 
 export function openScheduleManage() {
   const c = S.campaign;
-  dialogShell(
+  campaignDialogShell(
     t("Manage schedule", "管理排程"),
     t(`Currently scheduled for ${formatSchedule(c?.draft?.scheduled_for)}`, `現排程於 ${formatSchedule(c?.draft?.scheduled_for)}`),
     `${field("reschedule", t("New send time", "新發送時間"), c?.draft?.scheduled_for ?? "", { type: "datetime-local" })}`,
-    `${button("unschedule", t("Unschedule", "取消排程"), { kind: "quiet", key: "unsched" })}${button("reschedule", t("Reschedule", "更改時間"), { kind: "primary", key: "resched" })}`
+    `${campaignButton("unschedule", t("Unschedule", "取消排程"), { kind: "quiet", key: "unsched" })}${campaignButton("reschedule", t("Reschedule", "更改時間"), { kind: "primary", key: "resched" })}`
   );
 }

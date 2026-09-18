@@ -15,12 +15,12 @@ import { prepareLocalState } from './local-state.mjs';
 import { createConnectedApi } from './connected-api.mjs';
 import { EMAIL_CAMPAIGN_DEFINITION } from '../definition.ts';
 import { createDevelopmentSessions } from './development-session.mjs';
-import { createDoorRuntime } from './door-runtime.mjs';
+import { createDoorRuntime } from '@agenticos-dev/bot-devkit/doors';
 import { createConnectedAgent, emailMethodNames, sourceDigest } from './connected-agent.mjs';
 import { buildClient } from './client.mjs';
 import { connectedCanvasBridge } from './connected-canvas.mjs';
-import { assertGadgetDevWorkspaceId, assertRemoteApiOrigin } from './platform-origin.mjs';
-import { describeExpiry, mintGadgetDevSession, readDeveloperKey } from './gadget-dev-mint.mjs';
+import { assertGadgetDevWorkspaceId, assertRemoteApiOrigin } from '@agenticos-dev/bot-devkit/origins';
+import { describeExpiry, mintGadgetDevSession, readDeveloperKey } from '@agenticos-dev/bot-devkit/session';
 
 const port = Number(process.env.EMAIL_CAMPAIGN_PREVIEW_PORT || 17920);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("Choose an explicit unprivileged preview port.");
@@ -102,6 +102,7 @@ if (remote) {
     const minted = await mintGadgetDevSession({
       apiOrigin,
       developerKey,
+      envVar: 'EMAIL_CAMPAIGN_DEV_KEY',
       gadgetKey: EMAIL_CAMPAIGN_DEFINITION.key,
       title: EMAIL_CAMPAIGN_DEFINITION.title
     });
@@ -113,7 +114,7 @@ if (remote) {
   } else if (!devToken) {
     throw new Error('Set EMAIL_CAMPAIGN_DEV_KEY to a personal access token with the gadget_dev.session scope, or EMAIL_CAMPAIGN_DEV_TOKEN to a token already minted.');
   }
-  assertGadgetDevWorkspaceId(devWorkspaceId);
+  assertGadgetDevWorkspaceId(devWorkspaceId, 'EMAIL_CAMPAIGN_DEV_WORKSPACE_ID');
 }
 /**
  * Which methods this gadget calls on each door.

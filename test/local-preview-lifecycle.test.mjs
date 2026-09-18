@@ -1,0 +1,63 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {once} from 'node:events';
+import {mkdtemp, rm, access} from 'node:fs/promises';
+import {createServer} from 'node:net';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+
+test('preview SIGTERM releases state lock and fresh process reads saved draft', {skip:!process.env.BOT_SDK_SOURCE,timeout:20000}, async()=>{
+  const root=await mkdtemp(join(tmpdir(),'email-preview-lifecycle-'));
+  const stateDirectory=join(root,'state');
+  const reservation=createServer().listen(0,'127.0.0.1');
+  await once(reservation,'listening');
+  const port=reservation.address().port;
+  await new Promise(r=>reservation.close(r));
+  const origin=`http://127.0.0.1:${port}`;
+  let child, exited, errors;
+  async function start(){
+    child=spawn(process.execPath,['--import','tsx','scripts/preview.mjs'],{
+      cwd:fileURLToPath(new URL('../',import.meta.url)),
+      env:{...process.env,EMAIL_CAMPAIGN_PREVIEW_MODE:'local-runtime',EMAIL_CAMPAIGN_PREVIEW_PORT:String(port),EMAIL_CAMPAIGN_PREVIEW_STATE_DIRECTORY:stateDirectory},
+      stdio:['ignore','pipe','pipe']
+    });
+    exited=once(child,'exit');
+    let output=''; errors='';
+    child.stderr.on('data',chunk=>errors+=chunk);
+    let timer;
+    try {await Promise.race([
+      new Promise(resolve=>child.stdout.on('data',chunk=>{output+=chunk;if(output.includes('local-runtime preview:'))resolve();})),
+      exited.then(()=>{throw Error('Preview startup failed: '+errors);}),
+      new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Preview startup timed out')),7000);})
+    ]);} finally {clearTimeout(timer);}
+    const source=await(await fetch(origin+'/fixture.js')).text();
+    const token=source.match(/'x-bot-local-session':"([a-f0-9]+)"/)[1];
+    return async(method,args=[])=>{
+      const response=await fetch(origin+'/local-rpc',{method:'POST',headers:{origin,'content-type':'application/json','x-bot-local-session':token},body:JSON.stringify({method,args})});
+      assert.equal(response.status,200);
+      return (await response.json()).value;
+    };
+  }
+  async function stop(){
+    if(!child)return;
+    child.kill('SIGTERM');
+    const timer=setTimeout(()=>child?.kill('SIGKILL'),5000);
+    try {const [code]=await exited;assert.equal(code,0,'Preview must exit gracefully; stderr: '+errors);}
+    finally {clearTimeout(timer);child=undefined;}
+  }
+  try {
+    let call=await start();
+    const before=(await call('getDraft',[{id:'cmp_autumn'}])).campaign;
+    const subject='重新啟動後，這份本機草稿仍然完整保留。';
+    const saved=await call('saveDraft',[{id:'cmp_autumn',draft:{...before.draft,subject},expectedRevision:before.revision}]);
+    assert.equal(saved.ok,true);
+    await stop();
+    await assert.rejects(access(stateDirectory+'.lock'));
+    call=await start();
+    const reopened=(await call('getDraft',[{id:'cmp_autumn'}])).campaign;
+    assert.equal(reopened.draft.subject,subject);
+    assert.equal(reopened.revision,saved.revision);
+  } finally {try {await stop();}finally {await rm(root,{recursive:true,force:true});}}
+});
