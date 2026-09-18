@@ -5,10 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createEmailRuntime, browserBridge } from '../scripts/local-runtime.mjs';
 import { runInNewContext } from 'node:vm';
-import { pathToFileURL } from 'node:url';
-import { resolve } from 'node:path';
+import { DECODE_BYTES_SOURCE } from '@agenticos-dev/bot-testkit/rpc-bytes';
 
-test('real Email Campaign SQLite draft, revision conflict, and capability gap', {skip: !process.env.BOT_SDK_SOURCE}, async () => {
+test('real Email Campaign SQLite draft, revision conflict, and capability gap', async () => {
   // The manifest owns the module list — a gadget source the test forgets to
   // load fails inside the isolate as "No such module", not at the file read.
   const manifest = JSON.parse(await readFile(new URL('../manifest.json', import.meta.url), 'utf8'));
@@ -16,7 +15,7 @@ test('real Email Campaign SQLite draft, revision conflict, and capability gap', 
   const files = Object.fromEntries(await Promise.all(names.map(async name => [name, await readFile(new URL('../src/'+name, import.meta.url), 'utf8')])));
   const origin = 'http://localhost:17921';
   const root = await mkdtemp(join(tmpdir(),'email-persistence-test-'));
-  const options = {files, sdkSource: process.env.BOT_SDK_SOURCE, origins:[origin],stateDirectory:join(root,'state')};
+  const options = {files, origins:[origin],stateDirectory:join(root,'state')};
   let session;
   const call = async (method, args = []) => session.handle(new Request(origin+'/local-rpc', {
     method:'POST', headers:{origin,'content-type':'application/json','x-bot-local-session':session.token},body:JSON.stringify({method,args})
@@ -42,7 +41,6 @@ test('real Email Campaign SQLite draft, revision conflict, and capability gap', 
         assert.equal(options.credentials, 'omit');
         return session.handle(new Request(origin+url, {...options,headers:{...options.headers,origin}}));
       }};
-    const { DECODE_BYTES_SOURCE } = await import(pathToFileURL(resolve(process.env.BOT_SDK_SOURCE, 'packages/testkit/src/rpc-bytes.js')));
     runInNewContext(browserBridge(session.token, DECODE_BYTES_SOURCE), browser);
     const gadget = browser.gadget;
 

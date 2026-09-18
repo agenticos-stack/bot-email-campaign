@@ -1,11 +1,8 @@
-import { pathToFileURL } from 'node:url';
-import { resolve } from 'node:path';
+import { createLocalSession } from '@agenticos-dev/bot-testkit/local-session';
 import { LOCAL_RPC_MAX_BYTES } from './local-rpc-contract.mjs';
 
 // Development-only wrapper. The packaged server and its storage stay unchanged.
-export async function createEmailRuntime({ files, sdkSource, origins, stateDirectory, doors, seedFixtures = true }) {
-  if (!sdkSource) throw new Error('Local runtime requires BOT_SDK_SOURCE pointing to the SDK source checkout.');
-  const { createLocalSession } = await import(pathToFileURL(resolve(sdkSource, 'packages/testkit/src/local-session.js')));
+export async function createEmailRuntime({ files, origins, stateDirectory, doors, seedFixtures = true }) {
   const modules = Object.fromEntries(Object.entries(files).filter(([name]) => name.endsWith('.js') && name !== 'client.js'));
   modules['app-server.js'] = modules['server.js'];
   modules['server.js'] = `
